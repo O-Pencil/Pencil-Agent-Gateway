@@ -1,0 +1,28 @@
+# Pencil Agent Gateway Default Configuration
+# Environment variables can be referenced using ${ENV_VAR} syntax
+
+gateway:
+  # Server configuration
+  host: ${HOST:-0.0.0.0}
+  port: ${PORT:-8080}
+
+  # Log level: debug, info, warn, error
+  logLevel: ${LOG_LEVEL:-info}
+
+  # CORS origins (comma-separated, or * for all)
+  corsOrigins: ${CORS_ORIGINS:*}
+
+  # Request timeout in milliseconds
+  requestTimeoutMs: ${REQUEST_TIMEOUT_MS:-120000}
+
+# API Keys for authentication
+apiKeys:
+  - key: ${API_KEY:-pk_dev_default}
+    label: development-key
+    allowedAgents: "*"
+
+# Data directory for persistent storage
+dataDir: ${DATA_DIR:-./data}
+
+# Default agent instances (loaded on startup)
+agents: []

@@ -170,6 +170,98 @@ The code directories will be created during implementation milestones. The docs 
 
 See [docs/01-development-plan.md](./docs/01-development-plan.md) for the detailed task breakdown.
 
+## Quick Start
+
+### Local Development
+
+```bash
+# Install dependencies
+npm install
+
+# Start in development mode (with hot reload)
+npm run dev
+
+# Server starts at http://localhost:8080
+curl http://localhost:8080/healthz
+```
+
+### Docker Self-Hosting
+
+```bash
+# Build and run
+docker compose -f docker-compose.example.yml up -d
+
+# Or build and run manually
+docker build -t pencil-agent-gateway:latest .
+docker run -d --name pencil-gateway -p 8080:8080 pencil-agent-gateway:latest
+```
+
+### Create an Agent
+
+```bash
+curl -X POST http://localhost:8080/v1/agents \
+  -H "Authorization: Bearer pk_dev_default" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "id": "writing-assistant",
+    "model": {
+      "provider": "anthropic",
+      "name": "claude-sonnet-4-6",
+      "apiKey": "your-anthropic-api-key"
+    }
+  }'
+```
+
+### Chat (Non-Streaming)
+
+```bash
+curl -X POST http://localhost:8080/v1/chat/completions \
+  -H "Authorization: Bearer pk_dev_default" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "pencil/writing-assistant",
+    "messages": [{"role": "user", "content": "Write a haiku about coding"}]
+  }'
+```
+
+### Chat (Streaming)
+
+```bash
+curl -N -X POST http://localhost:8080/v1/chat/completions \
+  -H "Authorization: Bearer pk_dev_default" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "pencil/writing-assistant",
+    "messages": [{"role": "user", "content": "Hello"}],
+    "stream": true
+  }'
+```
+
+### Use with OpenAI SDK
+
+```typescript
+import OpenAI from "openai";
+const client = new OpenAI({
+  apiKey: "pk_dev_default",
+  baseURL: "http://localhost:8080/v1",
+});
+const response = await client.chat.completions.create({
+  model: "pencil/writing-assistant",
+  messages: [{ role: "user", content: "Hello!" }],
+});
+console.log(response.choices[0].message.content);
+```
+
+### Production Configuration
+
+```bash
+docker run -d -p 8080:8080 \
+  -v ./config/default.json:/app/config/default.json:ro \
+  -v ./data:/app/data \
+  -e ANTHROPIC_API_KEY=your-key \
+  pencil-agent-gateway:latest
+```
+
 ## Naming Note
 
 The precise technical role is **Agent Gateway**: a serving gateway for Agent engines.

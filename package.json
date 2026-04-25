@@ -1,0 +1,35 @@
+{
+  "name": "pencil-agent-gateway",
+  "version": "0.1.0",
+  "description": "Runtime gateway for PencilAgent to call Pencil through HTTP or SDK",
+  "type": "module",
+  "main": "dist/server.js",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "build": "tsc",
+    "start": "node dist/server.js",
+    "test": "vitest",
+    "test:run": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src --ext .ts"
+  },
+  "keywords": [
+    "pencil",
+    "agent",
+    "gateway",
+    "openai-compatible"
+  ],
+  "author": "Pencil Agent Gateway maintainers",
+  "license": "MIT",
+  "dependencies": {
+    "@hono/node-server": "^1.13.0",
+    "@pencil-agent/nano-pencil": "file:../nano-pencil",
+    "hono": "^4.6.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0",
+    "vitest": "^2.1.0"
+  }
+}

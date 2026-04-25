@@ -243,7 +243,20 @@ type GatewayExtension = {
 
 Do not implement this in v0.1. Keep the code structured so it can be introduced without rewriting route handlers.
 
-## 11. Design Checklist
+## 11. Known Gap
+
+**chat.ts bypasses AgentInstance.engine** (as of 2026-04-26).
+
+Current `src/routes/chat.ts` uses a global `MockEngineAdapter` instance (`getMockEngine()`) instead of `instance.engine` from the registry. This means:
+- EngineAdapter abstraction exists but is not actually used in the hot path.
+- All requests go through MockAdapter regardless of AgentConfig.
+- NanoPencilEngineAdapter's existence is purely structural.
+
+See [07-m7-nano-pencil-integration.md](./07-m7-nano-pencil-integration.md) for the task plan to fix this.
+
+---
+
+## 12. Design Checklist
 
 Before adding a dependency or feature, ask:
 

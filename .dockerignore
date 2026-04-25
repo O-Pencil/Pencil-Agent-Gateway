@@ -1,0 +1,45 @@
+# Dependencies
+node_modules
+
+# Build output
+dist
+
+# Test coverage
+coverage
+
+# Logs
+logs
+*.log
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Data directory (mounted as volume)
+data
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Git
+.git
+.gitignore
+
+# Documentation (docs are for reference, not runtime)
+docs
+README.md
+AGENTS.md
+LICENSE
+
+# Development files
+*.test.ts
+vitest.config.ts
+tsconfig.json

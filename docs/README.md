@@ -44,6 +44,10 @@ updated: 2026-04-25
 7. [06-glossary.md](./06-glossary.md)
    - Normative term table; pins the meaning of nanoPencil / nano-pencil / PencilAgent / Pencil / Pencil Agent Gateway. **PencilAgent = configured Agent instance, NOT the nanoPencil project.**
 
+8. [07-m7-nano-pencil-integration.md](./07-m7-nano-pencil-integration.md)
+   - M7 实施任务清单：安装 SDK 依赖、重写 NanoPencilEngineAdapter、修复 chat.ts 路由、端到端验证。
+   - Normative term table; pins the meaning of nanoPencil / nano-pencil / PencilAgent / Pencil / Pencil Agent Gateway. **PencilAgent = configured Agent instance, NOT the nanoPencil project.**
+
 ## Status
 
 These documents are the source of truth for the v0.1 build until code exists.

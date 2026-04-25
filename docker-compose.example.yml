@@ -1,0 +1,63 @@
+# Pencil Agent Gateway - Docker Compose Example
+#
+# This example shows how to run the Gateway with Docker Compose,
+# with persistent volumes for configuration and data.
+#
+# Quick start:
+#   cp docker-compose.example.yml docker-compose.yml
+#   docker compose up -d
+#   curl http://localhost:8080/healthz
+#
+# API Keys:
+#   Gateway API keys are configured in config/default.json.
+#   The default key is "pk_dev_default" for development only.
+#   Change it before deploying to production.
+#
+# Provider API Keys:
+#   Set provider-specific environment variables for your models.
+#   Agent configs can reference them as ${ANTHROPIC_API_KEY}.
+
+version: '3.8'
+
+services:
+  gateway:
+    image: pencil-agent-gateway:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: pencil-gateway
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      # Server configuration
+      - PORT=8080
+      - HOST=0.0.0.0
+      - LOG_LEVEL=info
+
+      # Data directory
+      - DATA_DIR=/app/data
+
+      # Provider API keys (set these to your actual keys)
+      # These can be referenced in agent configs as ${ANTHROPIC_API_KEY}
+      # - ANTHROPIC_API_KEY=sk-ant-your-key-here
+      # - OPENAI_API_KEY=sk-your-key-here
+      # - GOOGLE_API_KEY=your-key-here
+    volumes:
+      # Persist agent instances and sessions
+      - gateway-data:/app/data
+
+      # Mount custom configuration (uncomment to use)
+      # - ./config/default.json:/app/config/default.json:ro
+
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:8080/healthz', (r) => { process.exit(r.statusCode === 200 ? 0 : 1) })"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+# Named volume for persistent data
+volumes:
+  gateway-data:
+    driver: local

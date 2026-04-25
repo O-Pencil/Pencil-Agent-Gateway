@@ -1,0 +1,18 @@
+{
+  "gateway": {
+    "host": "0.0.0.0",
+    "port": 8080,
+    "logLevel": "info",
+    "corsOrigins": "*",
+    "requestTimeoutMs": 120000
+  },
+  "apiKeys": [
+    {
+      "key": "pk_dev_default",
+      "label": "development-key",
+      "allowedAgents": "*"
+    }
+  ],
+  "dataDir": "./data",
+  "agents": []
+}
