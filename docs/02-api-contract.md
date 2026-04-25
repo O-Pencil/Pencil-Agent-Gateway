@@ -13,9 +13,9 @@ updated: 2026-04-25
 
 ```text
 [WHO]  Gateway API consumers and maintainers
-[FROM] PencilAgent HTTP/SDK client first; also OpenAI-compatible clients, Asgard proxy, nanopencil-editor HttpChatProvider
-[TO]   Gateway routes and EngineAdapter calls
-[HERE] HTTP request/response, SSE format, auth headers, and error contract used to call Pencil
+[FROM] OpenAI-compatible callers: nanoPencil CLI (remote mode), nanopencil-editor HttpChatProvider, Asgard proxy, third-party HTTP clients
+[TO]   Gateway routes -> AgentRegistry -> PencilAgent instance -> EngineAdapter
+[HERE] HTTP request/response, SSE format, auth headers, and error contract used to invoke a PencilAgent
 ```
 
 ## 1. Base URL

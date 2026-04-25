@@ -12,9 +12,9 @@ updated: 2026-04-25
 ## DIP Metadata
 
 ```text
-[WHO]  Gateway, PencilAgent, Asgard, and nanopencil-editor maintainers
-[FROM] PencilAgent first; also Asgard Platform and nanopencil-editor
-[TO]   Pencil Agent Gateway OpenAI-compatible HTTP API and SDK surface
+[WHO]  Gateway, Asgard, and nanopencil-editor maintainers
+[FROM] Asgard Platform and nanopencil-editor as caller-side integrators
+[TO]   Pencil Agent Gateway OpenAI-compatible HTTP API and SDK surface; PencilAgent instances hosted there
 [HERE] Cross-project integration contracts; no direct code sharing across project boundaries
 ```
 

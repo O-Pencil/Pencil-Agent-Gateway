@@ -1,42 +1,42 @@
 # Pencil Agent Gateway
 
-> Runtime gateway for PencilAgent to call Pencil through HTTP or SDK.
+> HTTP serving layer that hosts PencilAgent instances and exposes them over an OpenAI-compatible API.
 
-Pencil Agent Gateway is the thin service boundary that lets **PencilAgent** call Pencil after startup through a stable HTTP/SDK interface.
-It exposes `nano-pencil` as an OpenAI-compatible HTTP + SSE API while keeping the Agent engine independent, embeddable, and lightweight.
+Pencil Agent Gateway hosts **PencilAgent instances** (`= nano-pencil engine + Soul + memory + model + personality`) and serves callers — nanoPencil CLI (remote mode), nanopencil-editor, Asgard Platform, and third-party HTTP clients — through a stable OpenAI-compatible HTTP + SSE API.
+It keeps the `nano-pencil` engine independent, embeddable, and lightweight, while moving HTTP serving, API keys, multi-instance config, and deployment packaging out of the engine.
 
 ## DIP Metadata
 
 ```text
 [WHO]  Pencil Agent Gateway maintainers and AI coding agents working in this repository
-[FROM] PencilAgent first; also Asgard Platform, nanopencil-editor, external HTTP clients, and future channel gateways
-[TO]   Pencil through a stable HTTP/SDK surface backed by nano-pencil EngineAdapter
-[HERE] This repository: the HTTP/API/SDK serving layer used by PencilAgent, not the Agent engine and not the platform console
+[FROM] OpenAI-compatible callers: nanoPencil CLI (remote mode), nanopencil-editor, Asgard Platform, third-party HTTP clients, and future channel gateways
+[TO]   PencilAgent instances backed by EngineAdapter -> nano-pencil engine
+[HERE] This repository: the HTTP/API/SDK serving layer that hosts PencilAgents, not the engine and not the platform console
 ```
 
 ## Positioning
 
-Pencil Agent Gateway is primarily for **PencilAgent** (the nanoPencil project at `/workspace/nanoPencil`, ecosystem core, npm package `@pencil-agent/nano-pencil`).
-For the full term table see [docs/06-glossary.md](./docs/06-glossary.md).
+Pencil Agent Gateway hosts **PencilAgents**. A PencilAgent is a configured Agent instance — it is **not** the same thing as the nanoPencil project. For the full term table see [docs/06-glossary.md](./docs/06-glossary.md).
 
 At runtime:
 
 ```text
-PencilAgent starts
-  -> loads Gateway URL or SDK client
-  -> calls Pencil Agent Gateway
-  -> Gateway calls Pencil/nano-pencil through EngineAdapter
+Caller (nanoPencil CLI / editor / Asgard / 3rd-party)
+  -> selects target PencilAgent (`pencil/<agent-id>`)
+  -> calls Pencil Agent Gateway over HTTP/SSE
+  -> Gateway routes to the PencilAgent instance
+  -> PencilAgent runs through EngineAdapter -> nano-pencil engine
   -> Gateway returns OpenAI-compatible text/SSE events
 ```
 
-The Gateway is not the Agent engine. It is also not the full SaaS platform.
+Each application configures its own PencilAgent(s) — different Soul, different memory window, different model — and invokes them through this Gateway. The Gateway is not the Agent engine. It is also not the full SaaS platform.
 
 | Layer | Project | Responsibility |
 |------|---------|----------------|
 | Agent engine | `nano-pencil` | Model dialogue, tool loop, memory primitives, engine SDK, ACP CLI |
-| Serving layer | `pencil-agent-gateway` | OpenAI-compatible HTTP API, SSE streaming, API Key auth, Agent instance config |
+| Serving layer | `pencil-agent-gateway` | OpenAI-compatible HTTP API, SSE streaming, API Key auth, **PencilAgent instance hosting** |
 | Platform layer | `Asgard Platform` | Users, billing, marketplace, console, container orchestration |
-| Client layer | `nanopencil-editor` | Writing UX, local workspace, desktop/web client integration |
+| Caller layer | `nanopencil-editor`, `nanoPencil CLI` (remote mode), 3rd-party | Writing UX, terminal Agent UX, IDE plugins, etc. — each configures its own PencilAgent(s) |
 
 The Gateway exists because the engine should remain easy to embed and evolve. HTTP serving, API keys, multi-instance config, deployment packaging, and platform integration are operational concerns and should not be forced into `nano-pencil`.
 
@@ -135,7 +135,7 @@ pencil-agent-gateway/
 │   ├── 02-api-contract.md
 │   ├── 03-adapter-architecture.md
 │   ├── 04-asgard-editor-integration.md
-│   ├── 05-pencilagent-runtime.md
+│   ├── 05-caller-runtime.md
 │   └── 06-glossary.md
 ├── LICENSE
 ├── src/
@@ -166,7 +166,7 @@ The code directories will be created during implementation milestones. The docs 
 7. Docker image and self-hosting examples.
 8. Asgard proxy contract.
 9. `nanopencil-editor` HTTP provider contract.
-10. PencilAgent HTTP/SDK runtime client contract.
+10. Caller runtime contract (HTTP + optional SDK) for nanoPencil CLI, editor, Asgard, third-party.
 
 See [docs/01-development-plan.md](./docs/01-development-plan.md) for the detailed task breakdown.
 

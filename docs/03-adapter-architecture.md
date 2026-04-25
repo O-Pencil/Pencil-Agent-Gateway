@@ -13,9 +13,9 @@ updated: 2026-04-25
 
 ```text
 [WHO]  Gateway maintainers and future engine extension authors
-[FROM] PencilAgent-facing Gateway route layer and Agent registry
-[TO]   Pencil/nano-pencil SDK and future Agent engines
-[HERE] Stable adapter boundary between HTTP/SDK serving and Agent engine internals
+[FROM] Gateway route layer -> AgentRegistry -> PencilAgent instance
+[TO]   nano-pencil engine SDK, and future Agent engines that implement EngineAdapter
+[HERE] Stable adapter boundary between HTTP/SDK serving (caller-facing) and Agent engine internals
 ```
 
 ## 1. Core Principle

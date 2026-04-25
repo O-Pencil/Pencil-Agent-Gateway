@@ -13,25 +13,26 @@ updated: 2026-04-25
 
 ```text
 [WHO]  Pencil Agent Gateway 维护者，以及在本仓库工作的 AI coding agents
-[FROM] PencilAgent 优先；同时包括 HTTP 客户端、Asgard Platform、nanopencil-editor、未来 Channel Gateway
-[TO]   Pencil/nano-pencil EngineAdapter，以及未来其他 Agent EngineAdapter
-[HERE] 本仓库只定义给 PencilAgent 调用 Pencil 的 HTTP/SDK serving 层：协议、鉴权、实例路由、部署边界
+[FROM] OpenAI-compatible callers：nanoPencil CLI（远程模式）、nanopencil-editor、Asgard Platform、第三方 HTTP 客户端、未来 Channel Gateway
+[TO]   PencilAgent 实例（= nano-pencil engine + Soul + memory + model + personality），通过 EngineAdapter 落到 nano-pencil
+[HERE] 本仓库定义托管 PencilAgent 实例并对外提供 OpenAI 兼容 HTTP/SDK serving 层：协议、鉴权、实例路由、部署边界
 ```
 
 ## 1. 核心定义
 
-Pencil Agent Gateway 是一个 **Agent serving gateway**，主要服务对象是 **PencilAgent**。
+Pencil Agent Gateway 是一个 **Agent serving gateway**，**托管 PencilAgent 实例并对外提供调用接口**。
 
-它的职责是把独立 Agent 引擎包装成可部署、可调用、可被平台管理的 HTTP 服务：
+PencilAgent 是配置好的运行单元（`nano-pencil engine + Soul + memory + model + personality`），有身份。Gateway 的职责是把这些 PencilAgent 包装成可部署、可调用、可被平台管理的 HTTP 服务：
 
 ```text
-PencilAgent / OpenAI-compatible Client
+Caller (nanoPencil CLI / editor / Asgard / 3rd-party)
   -> Pencil Agent Gateway
+  -> PencilAgent 实例
   -> EngineAdapter
-  -> nano-pencil SDK
+  -> nano-pencil engine
 ```
 
-它不是 Agent 引擎本体，也不是 SaaS 平台。
+它不是 Agent 引擎本体，也不是 SaaS 平台。术语口径见 [06-glossary.md](./06-glossary.md)。
 
 ## 2. 为什么拆出来
 
@@ -42,7 +43,8 @@ PencilAgent / OpenAI-compatible Client
 - `nano-pencil` 不需要内置 HTTP server、API Key、Docker 部署、多实例托管。
 - 未来 `nano-pencil` 可以通过 extension/adapter 的方式接入 Gateway。
 - 未来其他 Agent 引擎也可以实现同一套 `EngineAdapter`，被 Gateway 托管。
-- PencilAgent 只需要稳定的 HTTP/SDK 面即可调用 Pencil，不需要理解 Pencil 引擎内部结构。
+- Caller 只需要稳定的 HTTP/SDK 面即可调用某个 PencilAgent，不需要理解 Pencil 引擎内部结构。
+- 同一份 nano-pencil engine 可以同时托管多个 PencilAgent（不同 Soul / 不同 memory / 不同 model），互相隔离。
 
 这符合 DIP 的核心原则：**上层服务依赖稳定抽象，不直接依赖引擎内部实现细节**。
 
@@ -66,25 +68,25 @@ pencil-agent-gateway
 
 | 层 | 项目 | 做什么 | 不做什么 |
 |----|------|--------|----------|
-| Engine | `nano-pencil` | 对话、工具 loop、记忆、模型路由、SDK/ACP CLI | HTTP API、API Key、平台多租户 |
-| Agent Gateway | 本仓库 | OpenAI API、SSE、API Key、Agent 实例、EngineAdapter | 用户系统、计费、Marketplace、渠道 bot |
+| Engine | `nano-pencil` | 对话、工具 loop、记忆原语、模型路由、SDK/ACP CLI | HTTP API、API Key、平台多租户 |
+| Agent Gateway | 本仓库 | OpenAI API、SSE、API Key、**PencilAgent 实例托管**、EngineAdapter | 用户系统、计费、Marketplace、渠道 bot |
 | Platform | `Asgard Platform` | 用户、计费、Console、Marketplace、容器编排 | 直接 import nano-pencil 或 Gateway 代码 |
-| Client | `nanopencil-editor` | 写作 UX、本地 workspace、本地 ACP、远程 HTTP 接入 | 服务端 Agent 编排、平台账号系统 |
+| Caller | `nanopencil-editor`、`nanoPencil CLI`（远程模式）、3rd-party | 各自配置自己的 PencilAgent；通过 Gateway HTTP 调用 | 服务端 Agent 编排、平台账号系统 |
 
 ## 5. Gateway 做什么
 
 MVP 必须覆盖：
 
-- PencilAgent 启动后通过 HTTP/SDK 调用 Pencil
+- 任意 caller（nanoPencil CLI / editor / Asgard / 3rd-party）通过 HTTP/SDK 调用一个目标 PencilAgent
 - OpenAI-compatible `/v1/chat/completions`
 - SSE streaming
-- `/v1/models`
+- `/v1/models`（每个 PencilAgent 暴露为一个 model id）
 - API Key 鉴权
-- Agent 实例注册表
-- Agent 配置加载
-- 短期 session memory
+- PencilAgent 实例注册表
+- PencilAgent 配置加载（Soul + memory + model）
+- 短期 session memory（每个 PencilAgent + 每个 sessionId 独立）
 - `nano-pencil` 默认 EngineAdapter
-- Docker 单容器部署
+- Docker 单容器部署（一个容器可托管多个 PencilAgent）
 - Asgard 通过 HTTP 管理/转发
 - editor 通过 HTTP 消费
 - 生成并维护给 AI Agent 看的 `AGENTS.md`
@@ -110,7 +112,7 @@ MVP 必须覆盖：
 | 多 Agent workflow/DAG | 会把 serving 层变成平台层 | 后续 Asgard 或专门 orchestrator |
 | Telegram/Slack/Discord/微信 adapter | 渠道复杂度高，应独立 | `pencil-channel-gateway` |
 | Desktop 本地文件工具执行 | 客户端本地能力 | `nanopencil-editor` |
-| PencilAgent 业务逻辑 | Gateway 只提供调用 Pencil 的 HTTP/SDK 面 | PencilAgent |
+| Caller 业务逻辑 | Gateway 只提供托管 PencilAgent + HTTP/SDK 调用面 | 各 caller 自己 |
 
 ## 7. 双部署形态
 

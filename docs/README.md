@@ -13,9 +13,9 @@ updated: 2026-04-25
 
 ```text
 [WHO]  Pencil Agent Gateway contributors and AI coding agents
-[FROM] Repository README, AGENTS.md, product roadmap, and PencilAgent runtime requirements
+[FROM] Repository README, AGENTS.md, product roadmap, caller integration requirements
 [TO]   All planning, API, runtime, and integration documents in this directory
-[HERE] Documentation index and reading order for building a Gateway that PencilAgent can call through HTTP/SDK
+[HERE] Documentation index and reading order for building a Gateway that hosts PencilAgent instances and serves callers over HTTP/SDK
 ```
 
 ## Reading Order
@@ -38,11 +38,11 @@ updated: 2026-04-25
 5. [04-asgard-editor-integration.md](./04-asgard-editor-integration.md)
    - Asgard integration, nanopencil-editor `HttpChatProvider`, self-hosted client flow, and future Channel Gateway.
 
-6. [05-pencilagent-runtime.md](./05-pencilagent-runtime.md)
-   - Primary runtime contract for PencilAgent calling Pencil through Gateway HTTP or Gateway SDK.
+6. [05-caller-runtime.md](./05-caller-runtime.md)
+   - Caller-side runtime contract for invoking PencilAgents through Gateway HTTP/SDK; covers nanoPencil CLI (remote mode), editor, Asgard, and third-party callers.
 
 7. [06-glossary.md](./06-glossary.md)
-   - Normative term table; pins the meaning of nanoPencil / nano-pencil / PencilAgent / Pencil / Pencil Agent Gateway.
+   - Normative term table; pins the meaning of nanoPencil / nano-pencil / PencilAgent / Pencil / Pencil Agent Gateway. **PencilAgent = configured Agent instance, NOT the nanoPencil project.**
 
 ## Status
 

@@ -4,26 +4,27 @@
 
 ```text
 [WHO]  AI coding agents and human maintainers editing Pencil Agent Gateway
-[FROM] Product roadmap, Gateway docs, PencilAgent runtime needs, Asgard/editor integration contracts
-[TO]   A stable Gateway that lets PencilAgent call Pencil through HTTP/SDK
+[FROM] Product roadmap, Gateway docs, caller integration contracts (nanoPencil CLI, editor, Asgard, 3rd-party)
+[TO]   A stable Gateway that hosts PencilAgent instances and serves callers over HTTP/SDK
 [HERE] Repository-level development rules, DIP protocol, architecture boundaries, and implementation guardrails
 ```
 
 ## Mission
 
-This repository exists primarily to serve **PencilAgent**.
+This repository hosts **PencilAgent instances** (each = `nano-pencil engine + Soul + memory + model + personality`) and serves callers — nanoPencil CLI in remote mode, nanopencil-editor, Asgard Platform, and third-party HTTP clients — over a stable OpenAI-compatible HTTP/SSE API.
 
 The core runtime flow is:
 
 ```text
-PencilAgent
+Caller application
+  -> selects target PencilAgent (`pencil/<agent-id>`)
   -> HTTP client or Gateway SDK
   -> Pencil Agent Gateway
   -> EngineAdapter
-  -> Pencil / nano-pencil
+  -> nano-pencil engine
 ```
 
-Build the Gateway as a small, stable serving layer. Keep Agent engine logic independent and lightweight.
+Build the Gateway as a small, stable serving layer. Keep Agent engine logic independent and lightweight. **PencilAgent is what the Gateway hosts, not who calls the Gateway.** For terminology, see [docs/06-glossary.md](./docs/06-glossary.md).
 
 ## DIP Protocol
 
@@ -42,9 +43,9 @@ Example:
 
 ```text
 [WHO]  Gateway chat route
-[FROM] PencilAgent HTTP request or OpenAI-compatible client request
-[TO]   AgentRegistry -> EngineAdapter -> nano-pencil
-[HERE] Validate request, enforce auth, route to instance, serialize OpenAI-compatible response
+[FROM] OpenAI-compatible caller request (nanoPencil CLI, editor, Asgard proxy, 3rd-party)
+[TO]   AgentRegistry -> PencilAgent instance -> EngineAdapter -> nano-pencil
+[HERE] Validate request, enforce auth, route to PencilAgent instance, serialize OpenAI-compatible response
 ```
 
 ## Architecture Boundaries
@@ -53,9 +54,10 @@ Example:
 |----------|--------------|----------------------|
 | HTTP serving | Hono routes, API Key auth, SSE, OpenAI-compatible schema | model provider internals |
 | Engine bridge | `EngineAdapter`, `NanoPencilEngineAdapter` | direct SDK calls scattered across routes |
-| PencilAgent access | HTTP client contract, future Gateway SDK | PencilAgent business logic |
+| PencilAgent hosting | AgentRegistry, AgentInstance config, Soul/memory/model storage | caller business logic |
+| Caller access | HTTP client contract, optional Gateway SDK | caller-side application logic |
 | Platform integration | Asgard HTTP contract and headers | Asgard users, billing, marketplace UI |
-| Client integration | editor HTTP provider contract | editor UI implementation |
+| Editor integration | editor HTTP provider contract | editor UI implementation |
 | Channels | only future HTTP-facing contract | Telegram/Slack/Discord/WeChat adapters |
 
 ## Mandatory Rules
@@ -66,7 +68,7 @@ Example:
 4. Do not implement workflow/DAG orchestration in v0.1.
 5. Keep `/v1/chat/completions` OpenAI-compatible.
 6. Keep Pencil-specific extensions documented and namespaced.
-7. Keep Gateway usable by PencilAgent through HTTP first, SDK second.
+7. Keep Gateway usable by callers through HTTP first, optional SDK second.
 8. Update docs before or with any API/architecture change.
 9. Preserve DIP metadata in new planning docs.
 10. Prefer thin adapters over broad abstractions until a second real implementation exists.
@@ -80,7 +82,8 @@ Example:
 - Tests: Vitest
 - MVP storage: file-backed JSON/YAML
 - MVP protocol: HTTP + SSE
-- Primary consumer: PencilAgent
+- Primary callers: nanoPencil CLI (remote mode), nanopencil-editor, Asgard Platform, 3rd-party OpenAI clients
+- Primary served object: PencilAgent instances (`= nano-pencil engine + Soul + memory + model + personality`)
 - Default engine: nano-pencil through `NanoPencilEngineAdapter`
 
 ## Expected Repository Shape
@@ -100,11 +103,11 @@ src/
   util/
 ```
 
-The `sdk/` directory, when added, is for a small PencilAgent-facing client wrapper around Gateway HTTP calls. It must not bypass HTTP semantics or import engine internals.
+The `sdk/` directory, when added, is for a small caller-facing client wrapper around Gateway HTTP calls. It must not bypass HTTP semantics or import engine internals.
 
-## PencilAgent Runtime Contract
+## Caller Runtime Contract
 
-PencilAgent should be able to use either:
+Callers (nanoPencil CLI in remote mode, editor, Asgard, 3rd-party) should be able to use either:
 
 ```text
 HTTP:
@@ -113,7 +116,7 @@ HTTP:
 
 SDK:
   const client = new PencilGatewayClient({ baseUrl, apiKey })
-  client.chat({ model, messages, stream, sessionId })
+  client.chat({ model: "pencil/<agent-id>", messages, stream, sessionId })
 ```
 
 The SDK is a convenience wrapper over HTTP, not a separate private protocol.
@@ -134,7 +137,7 @@ Defer these unless explicitly requested:
 
 Before finishing a change, check:
 
-- Does this serve PencilAgent calling Pencil through HTTP/SDK?
+- Does this preserve the rule that Gateway HOSTS PencilAgents and SERVES callers (rather than calling out as PencilAgent)?
 - Is the engine still independent?
 - Is the route layer free of nano-pencil internals?
 - Does the API remain OpenAI-compatible?

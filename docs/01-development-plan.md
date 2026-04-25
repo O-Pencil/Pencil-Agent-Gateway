@@ -13,23 +13,23 @@ updated: 2026-04-25
 
 ```text
 [WHO]  Pencil Agent Gateway 开发者与代码审查者
-[FROM] PencilAgent runtime 需求、产品边界文档、生态路线图、Asgard 接入需求、editor HTTP 接入需求
-[TO]   可供 PencilAgent 通过 HTTP/SDK 调用 Pencil 的 Node.js + Hono Gateway、Docker 镜像、OpenAI-compatible API
+[FROM] Caller 接入需求（nanoPencil CLI / editor / Asgard / 3rd-party）、产品边界文档、生态路线图
+[TO]   可托管 PencilAgent 实例并对外提供 HTTP/SDK 调用的 Node.js + Hono Gateway、Docker 镜像、OpenAI-compatible API
 [HERE] 本文拆分工程任务、里程碑、验收标准和延期项
 ```
 
 ## 1. 总目标
 
-构建一个独立仓库、独立镜像、可自托管、可被 Asgard 管理的 Agent HTTP serving 层。
+构建一个独立仓库、独立镜像、可自托管、可被 Asgard 管理的 Agent HTTP serving 层，托管 PencilAgent 实例。
 
 v0.1 的成功标准：
 
-1. PencilAgent 启动后可以通过 HTTP 或 SDK 调用 Gateway。
+1. 任意 caller（nanoPencil CLI / editor / Asgard / 3rd-party）可以通过 HTTP 或 SDK 调用一个目标 PencilAgent。
 2. 用户可以通过 Docker 启动 Gateway。
 3. 用户可以用 OpenAI SDK 调用 `/v1/chat/completions`。
-4. Gateway 可以根据 `model: pencil/<agent-id>` 路由到不同 Agent 实例。
-5. 每个 Agent 实例有独立 soul、model、short-term memory。
-6. Asgard 可以通过 HTTP 创建/查询 Agent 并转发对话。
+4. Gateway 可以根据 `model: pencil/<agent-id>` 路由到不同 PencilAgent 实例。
+5. 每个 PencilAgent 实例有独立 Soul、model、short-term memory。
+6. Asgard 可以通过 HTTP 创建/查询 PencilAgent 并转发对话。
 7. nanopencil-editor 可以新增 `HttpChatProvider` 接入 Gateway。
 
 ## 2. 功能总览
