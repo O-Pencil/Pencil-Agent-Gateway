@@ -59,19 +59,29 @@ export type EngineRunRequest = {
   signal?: AbortSignal;
 };
 
+// Open discriminated union: v0.2 may extend with `tool_request`, `thinking`, `usage`, etc.
+// Always extend by adding new `type` cases; never repurpose existing ones.
 export type EngineEvent =
   | { type: "text_delta"; text: string }
   | { type: "done"; finishReason: "stop" | "length" | "cancelled" }
-  | { type: "error"; error: Error };
+  | { type: "error"; error: Error }
+  // Reserved future cases (not emitted in v0.1):
+  // | { type: "tool_request"; ... }
+  // | { type: "thinking"; ... }
+  // | { type: "usage"; promptTokens: number; completionTokens: number }
+  ;
 
 export interface EngineAdapter {
   readonly id: string;
   initialize?(): Promise<void>;
   run(request: EngineRunRequest): AsyncIterable<EngineEvent>;
-  runOnce?(request: EngineRunRequest): Promise<string>;
   dispose?(): Promise<void>;
 }
 ```
+
+Note: v0.1 intentionally does not expose a separate non-streaming method. Routes that need a non-streaming response collect events from `run` and accumulate `text_delta` until `done`. This keeps a single execution path and avoids divergent semantics between stream and non-stream modes.
+
+Future `finishReason` values will likely include `tool_calls` and `content_filter` once the corresponding event types are added; v0.1 implementations must not emit those values yet.
 
 ## 3. NanoPencilEngineAdapter
 
@@ -147,7 +157,17 @@ export interface GatewayStore {
 }
 ```
 
-Future storage implementations:
+### 6.1 Path Safety
+
+`agentId` and `sessionId` are used as filesystem path components. The store implementation MUST sanitize both before touching the filesystem:
+
+- Allowed character set: `[a-zA-Z0-9_-]` plus a single `/` is forbidden (no `/`, no `\`, no `.`, no `..`, no NUL).
+- Reject IDs that fail the pattern with a 400 response. Do not silently coerce.
+- Resolve the final path and verify it is still inside the configured `DATA_DIR`; reject otherwise.
+
+This protects against path-traversal exploits via crafted `session_id` headers/body fields and against accidental ID collisions across operating systems.
+
+### 6.2 Future storage implementations
 
 - SQLite
 - Postgres

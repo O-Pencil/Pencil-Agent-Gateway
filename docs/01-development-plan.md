@@ -349,6 +349,29 @@ M0 -> M1 -> M2 -> M3 -> M4 -> M5 -> M6 -> M7 -> M8 -> M9 -> M10 -> M11 -> M12
 
 不要先接真实 nano-pencil SDK。先用 `MockEngineAdapter` 把 HTTP contract 固定，再替换底层 engine。
 
+### 4.1 工时估算
+
+估算单位以一个熟悉 Node.js + Hono 的开发者全天工作为标准；接入真实模型/真实 nano-pencil 时按实际等待算入 M7。
+
+| 里程碑 | 估算 | 说明 |
+|--------|------|------|
+| M0 仓库基础设施 | 0.5 天 | 项目骨架、Hono hello-world、Vitest 配置 |
+| M1 配置加载与运行时上下文 | 0.5 天 | env 插值、`/readyz`、配置校验 |
+| M2 认证与权限 | 0.5 天 | API Key 中间件、allowedAgents、单元测试 |
+| M3 Agent Registry | 1 天 | 实例 CRUD、文件落盘、`/v1/models` |
+| M4 OpenAI Protocol | 0.5 天 | 类型与校验，纯 schema 工作 |
+| M5 Chat 非流式主链 | 0.5 天 | 含 `MockEngineAdapter` |
+| M6 SSE 流式主链 | 1 天 | 含取消/超时；多端兼容性测试 |
+| M7 nano-pencil EngineAdapter | 1 天 | SDK 接入与事件映射，依赖真实 key |
+| M8 短期记忆 | 0.5 天 | 文件结构 + 取舍策略 |
+| M9 Docker 与自托管 | 0.5 天 | 多阶段镜像、healthcheck、compose 样例 |
+| M10 Asgard 接入契约 | 0.5 天 | 主要是文档 + 头部约定 |
+| M11 nanopencil-editor 接入契约 | 0.5 天 | 主要是文档；编辑器侧改动在该项目里完成 |
+| M12 测试与质量门禁 | 1 天 | 串测、CI、文档对齐 |
+| **合计** | **8.5 天** | M0–M9 的端到端最小闭环约 6 天 |
+
+时长是单兵估算，并行/Review/集成 buffer 自行加 30–50%。
+
 ## 5. 版本切分
 
 | 版本 | 内容 |

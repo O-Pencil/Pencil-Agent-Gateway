@@ -41,6 +41,9 @@ updated: 2026-04-25
 6. [05-pencilagent-runtime.md](./05-pencilagent-runtime.md)
    - Primary runtime contract for PencilAgent calling Pencil through Gateway HTTP or Gateway SDK.
 
+7. [06-glossary.md](./06-glossary.md)
+   - Normative term table; pins the meaning of nanoPencil / nano-pencil / PencilAgent / Pencil / Pencil Agent Gateway.
+
 ## Status
 
 These documents are the source of truth for the v0.1 build until code exists.

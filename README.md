@@ -16,7 +16,8 @@ It exposes `nano-pencil` as an OpenAI-compatible HTTP + SSE API while keeping th
 
 ## Positioning
 
-Pencil Agent Gateway is primarily for **PencilAgent**.
+Pencil Agent Gateway is primarily for **PencilAgent** (the nanoPencil project at `/workspace/nanoPencil`, ecosystem core, npm package `@pencil-agent/nano-pencil`).
+For the full term table see [docs/06-glossary.md](./docs/06-glossary.md).
 
 At runtime:
 
@@ -134,7 +135,9 @@ pencil-agent-gateway/
 │   ├── 02-api-contract.md
 │   ├── 03-adapter-architecture.md
 │   ├── 04-asgard-editor-integration.md
-│   └── 05-pencilagent-runtime.md
+│   ├── 05-pencilagent-runtime.md
+│   └── 06-glossary.md
+├── LICENSE
 ├── src/
 │   ├── server.ts
 │   ├── config.ts

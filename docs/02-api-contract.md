@@ -74,6 +74,43 @@ X-Asgard-Agent: agent_xxx
 
 Asgard must still call Gateway with an internal API Key.
 
+### 3.4 Internal vs User API Keys
+
+Gateway treats all keys equally at the protocol level, but operators SHOULD provision distinct keys for distinct callers:
+
+```yaml
+gateway:
+  apiKeys:
+    - key: pk_user_xxx       # given to end users / OpenAI clients
+      label: user-default
+      allowedAgents: ["pencil/writing-assistant"]
+    - key: pk_internal_yyy   # used only by Asgard backend
+      label: asgard-internal
+      allowedAgents: ["*"]
+```
+
+Reasons:
+
+- Different rotation cadence (internal keys live longer, user keys may be short-lived).
+- Different scope: Asgard typically needs `*`; user-facing keys should be narrow.
+- Different audit trail: distinct labels make logs interpretable.
+
+This is an operational convention, not a protocol-level distinction. The Gateway MUST NOT introduce a separate "internal-key" code path.
+
+### 3.5 CORS
+
+Browser-based clients (such as `nanopencil-editor` Web build) call Gateway directly. Gateway MUST support CORS for cross-origin browser requests.
+
+Default behavior:
+
+- Allowed origins configured via `GATEWAY_CORS_ORIGINS` (comma-separated, or `*` for permissive self-host).
+- Allowed methods: `GET, POST, DELETE, OPTIONS`.
+- Allowed headers: `Authorization, Content-Type, X-Request-Id, X-Asgard-User, X-Asgard-Agent, X-Pencil-Session`.
+- `OPTIONS` preflight handled before auth middleware.
+- SSE responses include `Access-Control-Allow-Origin` so the browser fetch reader can consume the stream.
+
+When deployed behind Asgard or a reverse proxy that already terminates CORS, `GATEWAY_CORS_ORIGINS` may be left empty.
+
 ## 4. OpenAI-Compatible Chat
 
 ### 4.1 Request
@@ -111,6 +148,8 @@ Content-Type: application/json
 | `tool_choice` | accepted, ignored | v0.2 |
 | `n` | only `1` | reject otherwise |
 | `response_format` | text only | JSON mode not in v0.1 |
+
+Supported `finish_reason` values in v0.1: `stop`, `length`, `cancelled`. The OpenAI-spec values `tool_calls` and `content_filter` will be added when the corresponding Engine events ship in v0.2; v0.1 implementations MUST NOT emit them.
 
 ### 4.3 Non-Streaming Response
 
@@ -294,10 +333,15 @@ All JSON errors use OpenAI-compatible shape:
 | 401 | `unauthorized` | missing/invalid API Key |
 | 403 | `forbidden_agent` | API Key cannot access agent |
 | 404 | `agent_not_found` | model/agent not found |
+| 408 | `client_cancelled` | client disconnected before completion |
 | 409 | `agent_conflict` | invalid update conflict |
 | 422 | `unsupported_feature` | field accepted by OpenAI but not supported |
-| 499 | `client_cancelled` | client disconnected |
 | 500 | `engine_error` | engine failed |
+
+Notes:
+
+- For streaming requests, Gateway prefers an in-stream error event followed by a clean stream close over emitting a non-200 status mid-stream; a 408 status is used only when the cancellation is detected before the response begins. This keeps the OpenAI Node SDK happy.
+- Avoid emitting non-standard HTTP codes such as 499; they are not portable across clients.
 
 ## 8. Cancellation
 
