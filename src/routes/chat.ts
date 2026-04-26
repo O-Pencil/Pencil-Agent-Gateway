@@ -45,21 +45,22 @@ export async function handleChatCompletion(c: Context): Promise<Response> {
 
   // Get session store
   const sessionStore = getSessionStore();
-
-  // Get or create session
   const maxTurns = instance.config.memory?.maxTurns || 20;
-  const session = sessionStore.getOrCreate(instance.id, sessionId, { maxTurns });
 
-  // Add user messages from request to session history
+  // Append the new user messages from the request to the gateway-side audit log.
+  // Conversation history that the engine actually sees is owned by the engine
+  // (per-session PencilAgent inMemory state) — the gateway does not replay prior
+  // turns into the engine, which avoids the previous double-feed bug.
   for (const msg of request.messages) {
     if (msg.role === 'user') {
       sessionStore.addMessage(instance.id, sessionId, msg, { maxTurns });
     }
   }
 
-  // Build messages array with history
-  const messages: typeof request.messages = [...session.messages];
-  messages.push(...request.messages);
+  const session = sessionStore.getOrCreate(instance.id, sessionId, { maxTurns });
+
+  // Forward the request messages as-is to the engine adapter.
+  const messages = request.messages;
 
   // Generate chat ID
   const chatId = generateChatId();
