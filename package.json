@@ -23,7 +23,7 @@
   "license": "MIT",
   "dependencies": {
     "@hono/node-server": "^1.13.0",
-    "@pencil-agent/nano-pencil": "file:../nano-pencil",
+    "@pencil-agent/nano-pencil": "^1.13.6",
     "hono": "^4.6.0"
   },
   "devDependencies": {
