@@ -2,17 +2,27 @@
  * Nano-Pencil Engine Adapter
  *
  * [WHO]  Gateway server — provides NanoPencilEngineAdapter and createNanoPencilAdapter()
- * [FROM] Depends on @pencil-agent/nano-pencil (PencilAgent, ModelRegistry, AuthStorage, silentLogger)
+ * [FROM] Depends on @pencil-agent/nano-pencil (createAgentSession, ModelRegistry, AuthStorage, SessionManager, silentLogger)
  * [TO]   Consumed by AgentRegistry when binding engines to AgentInstances
  * [HERE] src/engine/nano-adapter.ts — ONLY file in Gateway that imports @pencil-agent/nano-pencil
  *
- * Per-session PencilAgent isolation: each unique sessionId gets its own
- * PencilAgent instance with private inMemory state, so concurrent HTTP sessions
- * cannot read each other's conversation history.
+ * Per-session isolation: each sessionId gets its own AgentSession with private
+ * inMemory state, so concurrent HTTP sessions cannot read each other's history.
+ *
+ * Uses createAgentSession directly (not PencilAgent wrapper) to guarantee the
+ * caller-specified model is passed through — PencilAgent silently drops the model
+ * parameter and lets the SDK auto-discover from local config, which breaks in
+ * Gateway mode where the model comes from the HTTP request.
  */
 
-import { PencilAgent, ModelRegistry, AuthStorage, silentLogger } from '@pencil-agent/nano-pencil';
-import type { AgentSessionEvent } from '@pencil-agent/nano-pencil';
+import {
+  createAgentSession,
+  ModelRegistry,
+  AuthStorage,
+  SessionManager,
+  silentLogger,
+} from '@pencil-agent/nano-pencil';
+import type { AgentSession, AgentSessionEvent } from '@pencil-agent/nano-pencil';
 
 import type { EngineAdapter, EngineRunRequest, EngineRunOptions, EngineRunResult } from './adapter.js';
 import type { AgentConfig } from '../config.js';
@@ -20,33 +30,30 @@ import { logger } from '../util/logger.js';
 import { EngineError } from '../util/errors.js';
 
 /**
- * Nano-Pencil Engine Adapter
- *
- * Bridges the Gateway EngineAdapter interface to the @pencil-agent/nano-pencil SDK.
- * Each adapter wraps one AgentConfig and maintains a Map<sessionId, PencilAgent>
- * so each conversation gets its own isolated PencilAgent state.
+ * Holds a per-session AgentSession + its event listener state.
  */
+interface SessionEntry {
+  session: AgentSession;
+}
+
 export class NanoPencilEngineAdapter implements EngineAdapter {
   readonly id = 'nano-pencil';
 
-  private modelRegistry: ModelRegistry;
   private provider: string;
   private modelName: string;
   private apiKey?: string;
-  private sessions = new Map<string, PencilAgent>();
+  private authStorage: AuthStorage;
+  private modelRegistry: ModelRegistry;
+  private sessions = new Map<string, SessionEntry>();
 
   constructor(config: AgentConfig) {
     this.provider = config.model.provider;
     this.modelName = config.model.name;
     this.apiKey = config.model.apiKey;
 
-    // Initialize auth storage and model registry for model resolution
-    const authStorage = AuthStorage.inMemory();
-    this.modelRegistry = new ModelRegistry(authStorage);
-
-    if (this.apiKey) {
-      authStorage.set(this.provider, { type: 'api_key', key: this.apiKey });
-    }
+    // Create isolated auth storage (in-memory, no file I/O)
+    this.authStorage = AuthStorage.inMemory();
+    this.modelRegistry = new ModelRegistry(this.authStorage);
 
     logger.debug('NanoPencilEngineAdapter created', {
       provider: this.provider,
@@ -55,8 +62,20 @@ export class NanoPencilEngineAdapter implements EngineAdapter {
   }
 
   /**
-   * Resolve the Model object from the registry to validate it exists.
-   * Throws if the model cannot be found.
+   * Ensure the API key is registered for this provider.
+   * Called lazily before each session creation so the key is always fresh.
+   */
+  private async ensureApiKey(): Promise<void> {
+    if (this.apiKey) {
+      await this.authStorage.set(this.provider, {
+        type: 'api_key',
+        key: this.apiKey,
+      });
+    }
+  }
+
+  /**
+   * Resolve the Model object from the registry. Throws if not found.
    */
   private resolveModel() {
     const model = this.modelRegistry.find(this.provider, this.modelName);
@@ -70,51 +89,48 @@ export class NanoPencilEngineAdapter implements EngineAdapter {
   }
 
   /**
-   * Get or create a PencilAgent for the given session.
-   * Each sessionId gets its own PencilAgent with private inMemory state.
+   * Get or create an AgentSession for the given sessionId.
    */
-  private async getOrCreateAgent(sessionId: string): Promise<PencilAgent> {
+  private async getOrCreateSession(sessionId: string): Promise<SessionEntry> {
     const existing = this.sessions.get(sessionId);
-    if (existing) {
-      return existing;
-    }
+    if (existing) return existing;
 
-    const agent = new PencilAgent({
-      apiKey: this.apiKey,
-      provider: this.provider,
-      model: this.modelName,
-      silent: true,
-      inMemory: true,
-      tools: [],
-      logger: silentLogger,
-    });
+    await this.ensureApiKey();
+    const model = this.resolveModel();
 
     try {
-      await agent.init();
+      const { session } = await createAgentSession({
+        model,
+        authStorage: this.authStorage,
+        modelRegistry: this.modelRegistry,
+        sessionManager: SessionManager.inMemory(),
+        enableSoul: false,
+        enableMCP: false,
+        silent: true,
+        logger: silentLogger,
+      });
+
+      const entry: SessionEntry = { session };
+      this.sessions.set(sessionId, entry);
+
+      logger.debug('AgentSession created', {
+        provider: this.provider,
+        model: this.modelName,
+        sessionId,
+        activeSessions: this.sessions.size,
+      });
+
+      return entry;
     } catch (err) {
       throw new EngineError(
-        `Failed to initialize PencilAgent for session '${sessionId}': ` +
-          (err instanceof Error ? err.message : String(err)),
+        `Failed to create AgentSession for '${sessionId}': ${err instanceof Error ? err.message : String(err)}`,
         err,
       );
     }
-
-    this.sessions.set(sessionId, agent);
-    logger.debug('PencilAgent session created', {
-      provider: this.provider,
-      model: this.modelName,
-      sessionId,
-      activeSessions: this.sessions.size,
-    });
-    return agent;
   }
 
-  /**
-   * Run the engine and generate a response.
-   *
-   * For non-streaming: uses PencilAgent.run() which blocks until completion.
-   * For streaming: uses PencilAgent.prompt() + subscribe() for event-driven deltas.
-   */
+  // ── EngineAdapter interface ─────────────────────────────
+
   async run(request: EngineRunRequest, options?: EngineRunOptions): Promise<EngineRunResult> {
     logger.debug('NanoPencilEngineAdapter.run', {
       agentId: request.agentId,
@@ -123,50 +139,65 @@ export class NanoPencilEngineAdapter implements EngineAdapter {
       stream: options?.stream ?? false,
     });
 
-    // Validate model before initializing
-    this.resolveModel();
-
-    const agent = await this.getOrCreateAgent(request.sessionId);
+    const entry = await this.getOrCreateSession(request.sessionId);
 
     if (options?.stream && options.onDelta) {
-      return this.runStreaming(agent, request, options);
+      return this.runStreaming(entry.session, request, options);
     }
-
-    return this.runNonStreaming(agent, request);
+    return this.runNonStreaming(entry.session, request);
   }
 
-  /**
-   * Non-streaming execution: use PencilAgent.run() which blocks until completion.
-   */
-  private async runNonStreaming(agent: PencilAgent, request: EngineRunRequest): Promise<EngineRunResult> {
+  // ── Non-streaming ───────────────────────────────────────
+
+  private async runNonStreaming(
+    session: AgentSession,
+    request: EngineRunRequest,
+  ): Promise<EngineRunResult> {
     const message = this.buildUserMessage(request);
 
-    try {
-      const text = await agent.run(message);
+    let collectedText = '';
 
-      return {
-        text,
-        finishReason: 'stop',
-        usage: {
-          promptTokens: 0,
-          completionTokens: 0,
-          totalTokens: 0,
-        },
-      };
+    const listener = (event: AgentSessionEvent) => {
+      if (event.type === 'message_end' && event.message?.role === 'assistant') {
+        const content = event.message.content;
+        if (typeof content === 'string') {
+          collectedText += content;
+        } else if (Array.isArray(content)) {
+          for (const block of content) {
+            if (block.type === 'text') collectedText += block.text;
+          }
+        }
+      }
+    };
+
+    const unsub = session.subscribe(listener);
+
+    try {
+      await session.prompt(message);
     } catch (err) {
-      if (err instanceof EngineError) throw err;
       throw new EngineError(
         `Engine run failed: ${err instanceof Error ? err.message : String(err)}`,
         err,
       );
+    } finally {
+      unsub();
     }
+
+    if (!collectedText.trim()) {
+      throw new EngineError('Engine returned empty response');
+    }
+
+    return {
+      text: collectedText,
+      finishReason: 'stop',
+      usage: { promptTokens: 0, completionTokens: 0, totalTokens: 0 },
+    };
   }
 
-  /**
-   * Streaming execution: use PencilAgent.prompt() + subscribe() for event-driven deltas.
-   */
+  // ── Streaming ───────────────────────────────────────────
+
   private async runStreaming(
-    agent: PencilAgent,
+    session: AgentSession,
     request: EngineRunRequest,
     options: EngineRunOptions,
   ): Promise<EngineRunResult> {
@@ -183,74 +214,63 @@ export class NanoPencilEngineAdapter implements EngineAdapter {
     };
 
     const listener = (event: AgentSessionEvent) => {
-      // Collect text deltas from message_update events
+      // Text deltas
       if (event.type === 'message_update' && event.message?.role === 'assistant') {
-        const assistantEvent = event.assistantMessageEvent;
-        if (assistantEvent?.type === 'text_delta' && 'delta' in assistantEvent) {
-          const delta = assistantEvent.delta as string;
+        const ae = event.assistantMessageEvent;
+        if (ae?.type === 'text_delta' && 'delta' in ae) {
+          const delta = ae.delta as string;
           collectedText += delta;
           options.onDelta!({ type: 'delta', content: delta });
         }
       }
 
-      // Detect completion
+      // Completion
       if (event.type === 'agent_end' || event.type === 'turn_end') {
         emitDone('stop');
       }
 
-      // Handle SDK errors
+      // Errors
       if (event.type === 'sdk:error') {
-        const errorMsg = event.error instanceof Error ? event.error.message : String(event.error);
-        options.onDelta!({ type: 'error', error: errorMsg });
+        const msg = event.error instanceof Error ? event.error.message : String(event.error);
+        options.onDelta!({ type: 'error', error: msg });
       }
     };
 
-    agent.subscribe(listener);
+    const unsub = session.subscribe(listener);
 
     try {
-      await agent.prompt(message);
+      await session.prompt(message);
 
-      // Fallback: if no deltas were emitted, use the collected text from getLastText()
-      if (collectedText === '' && agent.getLastText()) {
-        collectedText = agent.getLastText();
-        options.onDelta!({ type: 'delta', content: collectedText });
+      // Fallback: collect from message_end if no deltas arrived
+      if (collectedText === '') {
         emitDone('stop');
       }
     } catch (err) {
       if (options.signal?.aborted) {
         emitDone('cancelled');
       } else {
-        const errorMsg = err instanceof Error ? err.message : String(err);
+        const msg = err instanceof Error ? err.message : String(err);
         logger.error('Streaming error', {
           agentId: request.agentId,
           sessionId: request.sessionId,
-          error: errorMsg,
+          error: msg,
         });
-        options.onDelta!({ type: 'error', error: errorMsg });
+        options.onDelta!({ type: 'error', error: msg });
         finishReason = 'error';
       }
     } finally {
-      agent.unsubscribe(listener);
+      unsub();
     }
 
     return {
       text: collectedText,
       finishReason,
-      usage: {
-        promptTokens: 0,
-        completionTokens: 0,
-        totalTokens: 0,
-      },
+      usage: { promptTokens: 0, completionTokens: 0, totalTokens: 0 },
     };
   }
 
-  /**
-   * Build a user message string from the request messages.
-   *
-   * In v0.1, only the latest user message is forwarded to PencilAgent.
-   * Conversation history is owned by PencilAgent itself (per-session inMemory),
-   * so the gateway does not replay prior turns into the engine.
-   */
+  // ── Helpers ─────────────────────────────────────────────
+
   private buildUserMessage(request: EngineRunRequest): string {
     const userMessages = request.messages.filter(m => m.role === 'user');
     if (userMessages.length === 0) {
@@ -259,59 +279,32 @@ export class NanoPencilEngineAdapter implements EngineAdapter {
     return userMessages[userMessages.length - 1].content;
   }
 
-  /**
-   * Reset a session (or all sessions) to an empty conversation.
-   */
+  // ── Lifecycle ───────────────────────────────────────────
+
   async reset(sessionId?: string): Promise<void> {
     if (sessionId) {
-      const agent = this.sessions.get(sessionId);
-      if (agent && agent.isInitialized()) {
-        await agent.reset();
+      const entry = this.sessions.get(sessionId);
+      if (entry) {
+        this.sessions.delete(sessionId);
       }
       return;
     }
-    for (const agent of this.sessions.values()) {
-      if (agent.isInitialized()) {
-        await agent.reset();
-      }
-    }
+    this.sessions.clear();
   }
 
-  /**
-   * Drop a single session and shut down its PencilAgent.
-   */
   async dropSession(sessionId: string): Promise<void> {
-    const agent = this.sessions.get(sessionId);
-    if (!agent) return;
     this.sessions.delete(sessionId);
-    if (agent.isInitialized()) {
-      try {
-        await agent.shutdown();
-      } catch (err) {
-        logger.warn('Failed to shutdown PencilAgent session', { sessionId, error: err });
-      }
-    }
   }
 
-  /**
-   * Clean up all per-session PencilAgent instances.
-   */
   async dispose(): Promise<void> {
-    const sessionIds = Array.from(this.sessions.keys());
-    for (const sessionId of sessionIds) {
-      await this.dropSession(sessionId);
-    }
+    this.sessions.clear();
   }
 
-  /** Number of active per-session PencilAgent instances. (Test/diagnostic helper.) */
   get activeSessionCount(): number {
     return this.sessions.size;
   }
 }
 
-/**
- * Factory function to create a NanoPencilEngineAdapter from AgentConfig.
- */
 export function createNanoPencilAdapter(config: AgentConfig): NanoPencilEngineAdapter {
   return new NanoPencilEngineAdapter(config);
 }
