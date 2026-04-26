@@ -7,7 +7,7 @@
  * [HERE] Agent instance management and persistence
  */
 
-import { mkdirSync, writeFileSync, readFileSync, readdirSync, existsSync } from 'node:fs';
+import { mkdirSync, writeFileSync, readFileSync, readdirSync, existsSync, unlinkSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type { AgentConfig } from '../config.js';
 import { InvalidRequestError } from '../util/errors.js';
@@ -187,7 +187,7 @@ export class AgentRegistry {
     if (deleted) {
       const filePath = join(this.dataDir, 'agents', `${id}.json`);
       try {
-        require('node:fs').unlinkSync(filePath);
+        unlinkSync(filePath);
         logger.info('Agent deleted', { id });
       } catch {
         // File might not exist, that's okay
