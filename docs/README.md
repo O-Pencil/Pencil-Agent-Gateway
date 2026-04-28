@@ -4,7 +4,7 @@ status: active
 scope: docs-index
 owner: pencil-agent-gateway maintainers
 created: 2026-04-25
-updated: 2026-04-25
+updated: 2026-04-28
 ---
 
 # Pencil Agent Gateway Docs
@@ -49,6 +49,15 @@ updated: 2026-04-25
 
 9. [08-asgard-editor-end-to-end.md](./08-asgard-editor-end-to-end.md)
    - Asgard ↔ Gateway ↔ editor 三方端到端集成方案：角色分工、时序、Gateway/Asgard/editor 各端待办、联调里程碑。
+
+10. [09-asgard-integration-guide.md](./09-asgard-integration-guide.md)
+   - Asgard 平台侧接入手册：PencilAgent 定位、非 MCP 边界、FastAPI 路由改造、SSE 反代、DB/权限/部署约束。
+
+11. [10-editor-integration-guide.md](./10-editor-integration-guide.md)
+   - nanopencil-editor 侧 `remote-http` / `HttpChatProvider` 接入指南，只面向 Asgard，不直连 Gateway。
+
+12. [11-containerized-deployment.md](./11-containerized-deployment.md)
+   - Asgard + Gateway 容器化部署、内部网络、凭据、资源估算和运维检查清单。
 
 ## Status
 
