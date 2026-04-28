@@ -2,24 +2,31 @@
  * Nano-Pencil Engine Adapter
  *
  * [WHO]  Gateway server — provides NanoPencilEngineAdapter and createNanoPencilAdapter()
- * [FROM] Depends on @pencil-agent/nano-pencil (createAgentSession, ModelRegistry, AuthStorage, SessionManager, silentLogger)
+ * [FROM] Depends on @pencil-agent/nano-pencil (createAgentSession, ModelRegistry, AuthStorage, SessionManager, getAgentDir, silentLogger)
  * [TO]   Consumed by AgentRegistry when binding engines to AgentInstances
  * [HERE] src/engine/nano-adapter.ts — ONLY file in Gateway that imports @pencil-agent/nano-pencil
  *
- * Per-session isolation: each sessionId gets its own AgentSession with private
- * inMemory state, so concurrent HTTP sessions cannot read each other's history.
+ * Two operating modes, selected per-agent:
  *
- * Uses createAgentSession directly (not PencilAgent wrapper) to guarantee the
- * caller-specified model is passed through — PencilAgent silently drops the model
- * parameter and lets the SDK auto-discover from local config, which breaks in
- * Gateway mode where the model comes from the HTTP request.
+ *   1. **Inherited** (no `model.apiKey`): defer to the user's local nano-pencil
+ *      install — `~/.nanopencil/auth.json` for credentials, settings/registry
+ *      for the default model. Provider/model switching is the SDK's job; the
+ *      Gateway is just a thin HTTP shell. This is the default smoke path.
  *
- * Completion is read from `agent_end` (authoritative final state), not
- * `message_end` — the SDK's inner agent.js catches model-call errors and emits
- * them as `agent_end` with `messages[].errorMessage` set, *without* firing a
- * `message_end`. Listening only on `message_end` therefore gives the caller a
- * misleading "empty response" instead of the actual failure (bad model, bad
- * key, rate limit, etc.).
+ *   2. **BYO key** (`model.apiKey` present): the adapter spins up an isolated,
+ *      in-memory AuthStorage seeded with the supplied key. Useful for
+ *      multi-tenant deployments where each agent carries its own provider
+ *      credential and we cannot read the host's `~/.nanopencil/`.
+ *
+ * Per-session isolation: in either mode, each `sessionId` gets its own
+ * `AgentSession` with private inMemory state, so concurrent HTTP sessions
+ * cannot read each other's history.
+ *
+ * Completion is read from `agent_end` (authoritative final state). The SDK's
+ * inner agent.js catches model-call errors and emits them as `agent_end` with
+ * `messages[].errorMessage` set, *without* firing `message_end` — listening
+ * only on `message_end` therefore yields a misleading "empty response" instead
+ * of the actual failure (bad model, bad key, rate limit, etc.).
  */
 
 import {
@@ -27,6 +34,7 @@ import {
   ModelRegistry,
   AuthStorage,
   SessionManager,
+  getAgentDir,
   silentLogger,
 } from '@pencil-agent/nano-pencil';
 import type { AgentSession, AgentSessionEvent } from '@pencil-agent/nano-pencil';
@@ -40,10 +48,8 @@ interface SessionEntry {
   session: AgentSession;
 }
 
-/**
- * Pull the final assistant text out of an `agent_end` event payload.
- * Returns `null` if there is no assistant message in the payload.
- */
+type AdapterMode = 'byo-key' | 'inherited';
+
 function extractAssistantText(messages: unknown): string | null {
   if (!Array.isArray(messages)) return null;
   for (let i = messages.length - 1; i >= 0; i--) {
@@ -63,9 +69,6 @@ function extractAssistantText(messages: unknown): string | null {
   return null;
 }
 
-/**
- * Pull `errorMessage` off the last assistant message in an `agent_end` payload.
- */
 function extractErrorMessage(messages: unknown): string | null {
   if (!Array.isArray(messages)) return null;
   for (let i = messages.length - 1; i >= 0; i--) {
@@ -81,76 +84,128 @@ function extractErrorMessage(messages: unknown): string | null {
 export class NanoPencilEngineAdapter implements EngineAdapter {
   readonly id = 'nano-pencil';
 
-  private provider: string;
-  private modelName: string;
-  private apiKey?: string;
-  private authStorage: AuthStorage;
-  private modelRegistry: ModelRegistry;
+  private readonly mode: AdapterMode;
+  private readonly provider?: string;
+  private readonly modelName?: string;
+  private readonly apiKey?: string;
   private sessions = new Map<string, SessionEntry>();
 
-  constructor(config: AgentConfig) {
-    this.provider = config.model.provider;
-    this.modelName = config.model.name;
-    this.apiKey = config.model.apiKey;
+  // Lazy: only allocated for byo-key mode.
+  private byoAuthStorage?: AuthStorage;
+  private byoModelRegistry?: ModelRegistry;
+  private byoKeyApplied = false;
 
-    this.authStorage = AuthStorage.inMemory();
-    this.modelRegistry = new ModelRegistry(this.authStorage);
+  constructor(config: AgentConfig) {
+    this.provider = config.model?.provider;
+    this.modelName = config.model?.name;
+    this.apiKey = config.model?.apiKey;
+    this.mode = this.apiKey ? 'byo-key' : 'inherited';
 
     logger.debug('NanoPencilEngineAdapter created', {
+      mode: this.mode,
       provider: this.provider,
       model: this.modelName,
     });
   }
 
-  private async ensureApiKey(): Promise<void> {
-    if (this.apiKey) {
-      await this.authStorage.set(this.provider, {
-        type: 'api_key',
-        key: this.apiKey,
-      });
-    }
-  }
+  /**
+   * Build the createAgentSession options for the current request, lazily
+   * allocating any per-mode resources (auth/registry) the first time they are
+   * needed.
+   */
+  private async buildSessionOptions(sessionId: string) {
+    const opts: Parameters<typeof createAgentSession>[0] = {
+      enableSoul: false,
+      enableMCP: false,
+      silent: true,
+      logger: silentLogger,
+      sessionManager: SessionManager.inMemory(),
+    };
 
-  private resolveModel() {
-    const model = this.modelRegistry.find(this.provider, this.modelName);
-    if (!model) {
-      throw new EngineError(
-        `Model '${this.modelName}' not found for provider '${this.provider}'. ` +
-        `Check the model name and ensure the provider supports it.`
-      );
+    if (this.mode === 'byo-key') {
+      // Allocate isolated in-memory auth on first use.
+      if (!this.byoAuthStorage) {
+        this.byoAuthStorage = AuthStorage.inMemory();
+        this.byoModelRegistry = new ModelRegistry(this.byoAuthStorage);
+      }
+      // Refresh credential each session creation in case it rotated.
+      if (!this.byoKeyApplied) {
+        if (!this.provider) {
+          throw new EngineError(
+            'BYO-key mode requires model.provider in agent config (we need to know which provider to attach the key to).',
+          );
+        }
+        await this.byoAuthStorage.set(this.provider, {
+          type: 'api_key',
+          key: this.apiKey!,
+        });
+        this.byoKeyApplied = true;
+      }
+
+      const model = this.byoModelRegistry!.find(this.provider!, this.modelName!);
+      if (!model) {
+        throw new EngineError(
+          `Model '${this.modelName}' not found for provider '${this.provider}' in the SDK's static registry. ` +
+            'Pick a name from the nano-pencil model list.',
+        );
+      }
+
+      opts.model = model;
+      opts.authStorage = this.byoAuthStorage;
+      opts.modelRegistry = this.byoModelRegistry;
+      logger.debug('AgentSession options (byo-key)', {
+        sessionId,
+        provider: this.provider,
+        model: this.modelName,
+      });
+      return opts;
     }
-    return model;
+
+    // ── inherited mode ───────────────────────────────────
+    // Defer to ~/.nanopencil/. If the user supplied provider+name, look the
+    // model up in their *local* registry so it benefits from any custom
+    // models.json overrides; otherwise let createAgentSession pick its default.
+    if (this.provider && this.modelName) {
+      const localAuth = AuthStorage.create(getAgentDir());
+      const localRegistry = new ModelRegistry(localAuth);
+      const model = localRegistry.find(this.provider, this.modelName);
+      if (!model) {
+        throw new EngineError(
+          `Model '${this.modelName}' not found for provider '${this.provider}' in the local nano-pencil registry. ` +
+            'Either pick a name the local install knows about, or omit model.* to use the local default.',
+        );
+      }
+      opts.model = model;
+      opts.authStorage = localAuth;
+      opts.modelRegistry = localRegistry;
+    }
+    // else: no opts.model / opts.authStorage / opts.modelRegistry → SDK uses
+    // its full default chain (AuthStorage.create + default ModelRegistry +
+    // settings-derived default model).
+
+    logger.debug('AgentSession options (inherited)', {
+      sessionId,
+      provider: this.provider ?? '(local default)',
+      model: this.modelName ?? '(local default)',
+    });
+    return opts;
   }
 
   private async getOrCreateSession(sessionId: string): Promise<SessionEntry> {
     const existing = this.sessions.get(sessionId);
     if (existing) return existing;
 
-    await this.ensureApiKey();
-    const model = this.resolveModel();
+    const opts = await this.buildSessionOptions(sessionId);
 
     try {
-      const { session } = await createAgentSession({
-        model,
-        authStorage: this.authStorage,
-        modelRegistry: this.modelRegistry,
-        sessionManager: SessionManager.inMemory(),
-        enableSoul: false,
-        enableMCP: false,
-        silent: true,
-        logger: silentLogger,
-      });
-
+      const { session } = await createAgentSession(opts);
       const entry: SessionEntry = { session };
       this.sessions.set(sessionId, entry);
-
       logger.debug('AgentSession created', {
-        provider: this.provider,
-        model: this.modelName,
+        mode: this.mode,
         sessionId,
         activeSessions: this.sessions.size,
       });
-
       return entry;
     } catch (err) {
       throw new EngineError(
@@ -164,6 +219,7 @@ export class NanoPencilEngineAdapter implements EngineAdapter {
 
   async run(request: EngineRunRequest, options?: EngineRunOptions): Promise<EngineRunResult> {
     logger.debug('NanoPencilEngineAdapter.run', {
+      mode: this.mode,
       agentId: request.agentId,
       sessionId: request.sessionId,
       messageCount: request.messages.length,
@@ -268,7 +324,6 @@ export class NanoPencilEngineAdapter implements EngineAdapter {
     const listener = (event: AgentSessionEvent) => {
       logger.debug('SDK event', { sessionId: request.sessionId, type: event.type });
 
-      // Incremental text deltas
       if (event.type === 'message_update' && event.message?.role === 'assistant') {
         const ae = event.assistantMessageEvent;
         if (ae?.type === 'text_delta' && 'delta' in ae) {
@@ -278,7 +333,6 @@ export class NanoPencilEngineAdapter implements EngineAdapter {
         }
       }
 
-      // Authoritative completion / error event
       if (event.type === 'agent_end') {
         const err = extractErrorMessage(event.messages);
         if (err) {
@@ -286,8 +340,6 @@ export class NanoPencilEngineAdapter implements EngineAdapter {
           emitDone('error');
           return;
         }
-        // If the SDK never streamed deltas, fall back to one-shot delta from the
-        // final assistant text so the client sees something.
         if (collectedText === '') {
           const text = extractAssistantText(event.messages);
           if (text !== null && text.length > 0) {
@@ -309,7 +361,6 @@ export class NanoPencilEngineAdapter implements EngineAdapter {
 
     try {
       await session.prompt(message);
-      // Defensive: prompt resolved but no agent_end fired
       if (!doneEmitted) {
         if (!errorReported && collectedText === '') {
           emitError(

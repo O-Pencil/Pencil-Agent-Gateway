@@ -25,11 +25,16 @@ export interface ApiKeyConfig {
 }
 
 /**
- * Model configuration
+ * Model configuration. All fields optional:
+ *   - provider/name: when omitted, the engine adapter falls back to whatever
+ *     model the local nano-pencil install (`~/.nanopencil/`) resolves as default.
+ *   - apiKey: when present, the adapter creates an isolated in-memory auth
+ *     store (BYO key); when absent, it inherits the user's local nano-pencil
+ *     auth so provider/model switching happens in the SDK, not the Gateway.
  */
 export interface ModelConfig {
-  provider: string;
-  name: string;
+  provider?: string;
+  name?: string;
   apiKey?: string;
   baseUrl?: string;
 }
@@ -66,7 +71,12 @@ export interface AgentConfig {
   name?: string;
   soul?: SoulConfig;
   memory?: MemoryConfig;
-  model: ModelConfig;
+  /**
+   * Optional. When omitted, the adapter inherits the user's local nano-pencil
+   * install (auth + default model). Provide it to override provider/model or
+   * to run in BYO-key mode (see ModelConfig).
+   */
+  model?: ModelConfig;
   engine?: EngineConfig;
 }
 

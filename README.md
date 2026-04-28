@@ -198,7 +198,28 @@ docker run -d --name pencil-gateway -p 8080:8080 pencil-agent-gateway:latest
 
 ### Create an Agent
 
+The `model` field is **optional**. The Gateway has two modes:
+
+- **Inherited** (recommended for self-host) — omit `model.apiKey` (or omit `model` entirely) and the adapter uses the user's local nano-pencil install (`~/.nanopencil/auth.json` + the model selected by `nanopencil /login` / settings). Provider/model switching happens inside nano-pencil; the Gateway is a thin shell.
+- **BYO key** — pass `model.provider`, `model.name` and `model.apiKey`; the adapter creates an isolated in-memory auth store seeded with that key. Useful when the host has no `~/.nanopencil/` (e.g., container deployments where each agent carries its own credential).
+
 ```bash
+# Inherited mode (no key, no model):
+curl -X POST http://localhost:8080/v1/agents \
+  -H "Authorization: Bearer pk_dev_default" \
+  -H "Content-Type: application/json" \
+  -d '{ "id": "writing-assistant" }'
+
+# Inherited mode with model override:
+curl -X POST http://localhost:8080/v1/agents \
+  -H "Authorization: Bearer pk_dev_default" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "id": "writing-assistant",
+    "model": { "provider": "anthropic", "name": "claude-sonnet-4-5-20250929" }
+  }'
+
+# BYO key mode:
 curl -X POST http://localhost:8080/v1/agents \
   -H "Authorization: Bearer pk_dev_default" \
   -H "Content-Type: application/json" \
@@ -206,8 +227,8 @@ curl -X POST http://localhost:8080/v1/agents \
     "id": "writing-assistant",
     "model": {
       "provider": "anthropic",
-      "name": "claude-sonnet-4-6",
-      "apiKey": "your-anthropic-api-key"
+      "name": "claude-sonnet-4-5-20250929",
+      "apiKey": "sk-ant-..."
     }
   }'
 ```

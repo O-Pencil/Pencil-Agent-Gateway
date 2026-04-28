@@ -6,19 +6,40 @@
  * [TO]   终端输出
  * [HERE] test/smoke.mjs — 创建 Agent + 发消息（非流式 + 流式 + session 记忆）
  *
- * 用法:
- *   ANTHROPIC_API_KEY=sk-ant-xxx node test/smoke.mjs
- *   ANTHROPIC_API_KEY=sk-ant-xxx node test/smoke.mjs http://localhost:8080
+ * 默认走 "inherited" 模式：让 Gateway 沿用你本机 `~/.nanopencil/` 里登录的
+ * provider/model（也就是你 `nanopencil /login` 进的那个）。这是 Gateway 设计
+ * 的主路径——provider/model 切换由 nano-pencil SDK 负责，Gateway 只做 HTTP 壳。
+ *
+ * 用法（默认，推荐）:
+ *   node test/smoke.mjs
+ *   node test/smoke.mjs http://localhost:8080
+ *
+ * 显式指定 provider/model（仍走本机 auth）:
+ *   PENCIL_PROVIDER=anthropic PENCIL_MODEL=claude-sonnet-4-5-20250929 node test/smoke.mjs
+ *
+ * BYO key（传入云厂商裸 key，不走本机 auth）:
+ *   PENCIL_PROVIDER=anthropic PENCIL_MODEL=claude-sonnet-4-5-20250929 \
+ *   PENCIL_API_KEY=sk-ant-xxx node test/smoke.mjs
  */
 
 const BASE = process.argv[2] || 'http://localhost:8080';
-const API_KEY = 'pk_dev_default';
-const PROVIDER_KEY = process.env.ANTHROPIC_API_KEY;
+const GATEWAY_KEY = 'pk_dev_default';
 
-if (!PROVIDER_KEY) {
-  console.error('❌ 请设置 ANTHROPIC_API_KEY 环境变量');
-  console.error('   ANTHROPIC_API_KEY=sk-ant-xxx node test/smoke.mjs');
-  process.exit(1);
+const PROVIDER = process.env.PENCIL_PROVIDER || '';
+const MODEL = process.env.PENCIL_MODEL || '';
+const PROVIDER_KEY = process.env.PENCIL_API_KEY || '';
+
+// 构造 model 字段：
+//  - 没设任何 env       → 完全省略 model，让 SDK 用本机默认
+//  - 设了 PROVIDER+MODEL → 作为 override
+//  - 还设了 PROVIDER_KEY → BYO 模式
+function buildModelField() {
+  if (!PROVIDER && !MODEL && !PROVIDER_KEY) return undefined;
+  const m = {};
+  if (PROVIDER) m.provider = PROVIDER;
+  if (MODEL) m.name = MODEL;
+  if (PROVIDER_KEY) m.apiKey = PROVIDER_KEY;
+  return m;
 }
 
 // ── helpers ──────────────────────────────────────────────
@@ -27,7 +48,7 @@ async function api(method, path, body) {
   const opts = {
     method,
     headers: {
-      'Authorization': `Bearer ${API_KEY}`,
+      'Authorization': `Bearer ${GATEWAY_KEY}`,
       'Content-Type': 'application/json',
     },
   };
@@ -50,28 +71,30 @@ function ok(label, { status, json }) {
 
 async function main() {
   console.log(`\n🚀 Gateway E2E Smoke Test`);
-  console.log(`   Target: ${BASE}\n`);
+  console.log(`   Target: ${BASE}`);
+  const modelField = buildModelField();
+  if (!modelField) {
+    console.log(`   Model:  (沿用本机 nano-pencil 默认)\n`);
+  } else {
+    const tags = [];
+    if (modelField.provider) tags.push(`provider=${modelField.provider}`);
+    if (modelField.name) tags.push(`name=${modelField.name}`);
+    if (modelField.apiKey) tags.push(`mode=byo-key`);
+    else tags.push(`mode=inherited`);
+    console.log(`   Model:  ${tags.join(' ')}\n`);
+  }
 
   // 0. Health
   console.log('── Health ──');
-  {
-    const r = await api('GET', '/healthz');
-    ok('healthz', r);
-  }
+  ok('healthz', await api('GET', '/healthz'));
 
   // 1. 创建 Agent
   console.log('\n── 创建 Agent ──');
   const agentId = 'smoke-test-' + Date.now();
   {
-    const r = await api('POST', '/v1/agents', {
-      id: agentId,
-      name: 'Smoke Test Agent',
-      model: {
-        provider: 'anthropic',
-        name: 'claude-sonnet-4-6',
-        apiKey: PROVIDER_KEY,
-      },
-    });
+    const body = { id: agentId, name: 'Smoke Test Agent' };
+    if (modelField) body.model = modelField;
+    const r = await api('POST', '/v1/agents', body);
     const result = ok('POST /v1/agents', r);
     if (!result) process.exit(1);
     console.log(`     modelId: ${result.modelId}`);
@@ -90,7 +113,6 @@ async function main() {
 
   // 3. 非流式对话
   console.log('\n── 非流式对话 ──');
-  let reply1 = '';
   {
     const r = await api('POST', '/v1/chat/completions', {
       model: `pencil/${agentId}`,
@@ -98,8 +120,8 @@ async function main() {
     });
     const result = ok('POST /v1/chat/completions (non-stream)', r);
     if (result) {
-      reply1 = result.choices?.[0]?.message?.content || '';
-      console.log(`     回复: ${reply1.slice(0, 100)}${reply1.length > 100 ? '...' : ''}`);
+      const reply = result.choices?.[0]?.message?.content || '';
+      console.log(`     回复: ${reply.slice(0, 100)}${reply.length > 100 ? '...' : ''}`);
     }
   }
 
@@ -109,7 +131,7 @@ async function main() {
     const res = await fetch(`${BASE}/v1/chat/completions`, {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${API_KEY}`,
+        'Authorization': `Bearer ${GATEWAY_KEY}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
@@ -124,10 +146,8 @@ async function main() {
     } else {
       let text = '';
       let chunks = 0;
-      const body = res.body;
-      const reader = body.getReader();
+      const reader = res.body.getReader();
       const decoder = new TextDecoder();
-
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
@@ -141,7 +161,6 @@ async function main() {
           } catch {}
         }
       }
-
       console.log(`  ✅ stream 收到 ${chunks} 个 delta`);
       console.log(`     回复: ${text.slice(0, 100)}${text.length > 100 ? '...' : ''}`);
     }
@@ -151,7 +170,6 @@ async function main() {
   console.log('\n── Session 记忆 ──');
   {
     const sessionId = 'memory-test-' + Date.now();
-    // 第一轮：告诉 Agent 一个秘密
     const r1 = await api('POST', '/v1/chat/completions', {
       model: `pencil/${agentId}`,
       messages: [{ role: 'user', content: '记住这个密码：7482' }],
@@ -159,7 +177,6 @@ async function main() {
     });
     ok('第一轮 (记住密码)', r1);
 
-    // 第二轮：问它密码
     const r2 = await api('POST', '/v1/chat/completions', {
       model: `pencil/${agentId}`,
       messages: [{ role: 'user', content: '我刚才让你记住的密码是什么？只回复数字' }],
@@ -175,10 +192,7 @@ async function main() {
 
   // 6. 清理
   console.log('\n── 清理 ──');
-  {
-    const r = await api('DELETE', `/v1/agents/${agentId}`);
-    ok('DELETE agent', r);
-  }
+  ok('DELETE agent', await api('DELETE', `/v1/agents/${agentId}`));
 
   console.log('\n✅ Smoke test 完成\n');
 }
