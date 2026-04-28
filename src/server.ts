@@ -59,9 +59,21 @@ async function main(): Promise<void> {
     await registry.load();
 
     // Load agents from config file
-    registry.loadFromConfig(config.agents);
+    await registry.loadFromConfig(config.agents);
 
     logger.info('Agents loaded', { count: registry.getAll().length });
+
+    // Refuse to start with zero API keys (issue 0010): a server in this state
+    // returns 401 to every request, with no signal to the operator that the
+    // cause is a missing/malformed config rather than truly-revoked keys.
+    if (config.apiKeys.length === 0 && process.env.GATEWAY_ALLOW_NO_AUTH !== '1') {
+      throw new Error(
+        'Refusing to start: configuration loaded with zero API keys. ' +
+          'Either fix GATEWAY_CONFIG / config/default.json to define apiKeys, ' +
+          'set the API_KEY env var, or — if you really mean it — set ' +
+          'GATEWAY_ALLOW_NO_AUTH=1 to bypass this check.',
+      );
+    }
 
     // Create Hono app
     const app = createApp();
@@ -75,10 +87,30 @@ async function main(): Promise<void> {
 
     logger.info(`Server listening on http://${config.gateway.host}:${config.gateway.port}`);
 
-    // Graceful shutdown
+    // Graceful shutdown (issue 0008): close listener, then dispose every
+    // agent engine within a bounded timeout, then exit. We never let a stuck
+    // engine block container termination forever — the orchestrator's TERM→KILL
+    // window is short and stalling here just turns into a SIGKILL anyway.
+    const shutdownTimeoutMs = parseInt(process.env.SHUTDOWN_TIMEOUT_MS || '10000', 10);
+    let shuttingDown = false;
     const shutdown = async (signal: string): Promise<void> => {
-      logger.info(`Received ${signal}, shutting down gracefully...`);
+      if (shuttingDown) return;
+      shuttingDown = true;
+      logger.info(`Received ${signal}, shutting down gracefully...`, { shutdownTimeoutMs });
       server.close();
+      try {
+        await Promise.race([
+          registry.disposeAll(),
+          new Promise((_, reject) =>
+            setTimeout(() => reject(new Error('engine disposal exceeded shutdownTimeoutMs')), shutdownTimeoutMs),
+          ),
+        ]);
+        logger.info('All engines disposed');
+      } catch (err) {
+        logger.warn('Engine disposal incomplete', {
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
       logger.info('Server shut down complete');
       process.exit(0);
     };

@@ -2,13 +2,15 @@
 id: 0007
 title: AgentRegistry replaces instances without disposing the old engine
 severity: high
-status: open
+status: resolved
 area: src/agent/registry.ts
 reported: 2026-04-26
-updated: 2026-04-26
+updated: 2026-04-28
 related-files:
   - src/agent/registry.ts
   - src/engine/nano-adapter.ts
+related-commits:
+  - <set-on-commit>
 ---
 
 ## DIP Metadata
@@ -45,19 +47,19 @@ this.instances.set(config.id, instance);
 It does not look up the previous instance, and `AgentInstance` exposes no
 disposal hook for the registry to call.
 
-## Proposed fix
+## Proposed fix (applied)
 
-1. Make `AgentInstance` expose `dispose(): Promise<void>` that delegates to
-   `this.engine.dispose?.()`.
-2. In `AgentRegistry.register`:
-   - If an instance already exists for `config.id`, `await previous.dispose()`
-     before replacing it.
-   - Make `register` async and propagate the await up to the route handler.
-3. Add a regression test that registers an agent twice with the same id and
-   asserts the first engine's `dispose` was called.
+1. `AgentInstance.dispose()` now delegates to `this.engine.dispose?.()` and
+   logs (but never re-throws) any error.
+2. `AgentRegistry.register(config)` is now async; it `await previous.dispose()`
+   before replacing.
+3. `AgentRegistry.delete(id)` also disposes before removing.
+4. Route handlers (`POST /v1/agents`, `DELETE /v1/agents/:id`) updated to
+   await both calls.
+5. Regression test added: registering the same id twice fires `engine.dispose`
+   on the first instance.
 
 ## Notes
 
 - Original review numbering: problem #7.
-- Related to issue 0008 (shutdown-time dispose) — the same `dispose` hook is
-  needed in both places.
+- Pairs with issue 0008 (shutdown-time dispose) — same `engine.dispose()` hook.

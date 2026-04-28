@@ -55,8 +55,8 @@ Cross-references are kept inside each file under "Notes".
 | 0004 | chat.ts double-feeds user messages into engine context | high | resolved |
 | 0005 | NanoPencilEngineAdapter calls `ensureInitialized()` twice | low | resolved |
 | 0006 | Empty model response thrown as `EngineError` | medium | resolved |
-| 0007 | AgentRegistry replaces instances without disposing the old engine | high | open |
-| 0008 | SIGINT/SIGTERM does not dispose per-agent engines | high | open |
+| 0007 | AgentRegistry replaces instances without disposing the old engine | high | resolved |
+| 0008 | SIGINT/SIGTERM does not dispose per-agent engines | high | resolved |
 | 0009 | `AuthStorage` / `ModelRegistry` are constructed but never wired into PencilAgent | medium | open |
-| 0010 | `loadConfig` silent fallback boots Gateway with zero API keys | high | open |
+| 0010 | `loadConfig` silent fallback boots Gateway with zero API keys | high | resolved |
 | 0011 | `default.yaml` is shipped but YAML loading is rejected at runtime | medium | open |

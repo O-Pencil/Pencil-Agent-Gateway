@@ -84,24 +84,24 @@ describe('AgentRegistry', () => {
     cleanTestDataDir();
   });
 
-  it('should register a new agent', () => {
+  it('should register a new agent', async () => {
     const config = makeAgentConfig();
-    const instance = registry.register(config);
+    const instance = await registry.register(config);
     expect(instance.id).toBe('test-agent');
     expect(instance.modelId).toBe('pencil/test-agent');
   });
 
-  it('should get agent by ID', () => {
+  it('should get agent by ID', async () => {
     const config = makeAgentConfig();
-    registry.register(config);
+    await registry.register(config);
     const instance = registry.get('test-agent');
     expect(instance).toBeDefined();
     expect(instance?.modelId).toBe('pencil/test-agent');
   });
 
-  it('should get agent by model ID', () => {
+  it('should get agent by model ID', async () => {
     const config = makeAgentConfig();
-    registry.register(config);
+    await registry.register(config);
     const instance = registry.getByModelId('pencil/test-agent');
     expect(instance).toBeDefined();
     expect(instance?.id).toBe('test-agent');
@@ -115,47 +115,47 @@ describe('AgentRegistry', () => {
     expect(registry.getByModelId('openai/gpt-4')).toBeUndefined();
   });
 
-  it('should list all agents', () => {
-    registry.register(makeAgentConfig({ id: 'agent-a' }));
-    registry.register(makeAgentConfig({ id: 'agent-b' }));
+  it('should list all agents', async () => {
+    await registry.register(makeAgentConfig({ id: 'agent-a' }));
+    await registry.register(makeAgentConfig({ id: 'agent-b' }));
     const all = registry.getAll();
     expect(all).toHaveLength(2);
   });
 
-  it('should return models in OpenAI format', () => {
-    registry.register(makeAgentConfig({ id: 'agent-a' }));
-    registry.register(makeAgentConfig({ id: 'agent-b' }));
+  it('should return models in OpenAI format', async () => {
+    await registry.register(makeAgentConfig({ id: 'agent-a' }));
+    await registry.register(makeAgentConfig({ id: 'agent-b' }));
     const models = registry.getModels();
     expect(models).toHaveLength(2);
     expect(models[0].object).toBe('model');
   });
 
-  it('should check existence', () => {
-    registry.register(makeAgentConfig());
+  it('should check existence', async () => {
+    await registry.register(makeAgentConfig());
     expect(registry.has('test-agent')).toBe(true);
     expect(registry.has('nonexistent')).toBe(false);
   });
 
-  it('should check model ID existence', () => {
-    registry.register(makeAgentConfig());
+  it('should check model ID existence', async () => {
+    await registry.register(makeAgentConfig());
     expect(registry.hasModelId('pencil/test-agent')).toBe(true);
     expect(registry.hasModelId('pencil/nonexistent')).toBe(false);
   });
 
-  it('should delete an agent', () => {
-    registry.register(makeAgentConfig());
-    const deleted = registry.delete('test-agent');
+  it('should delete an agent', async () => {
+    await registry.register(makeAgentConfig());
+    const deleted = await registry.delete('test-agent');
     expect(deleted).toBe(true);
     expect(registry.has('test-agent')).toBe(false);
   });
 
-  it('should return false when deleting non-existent agent', () => {
-    expect(registry.delete('nonexistent')).toBe(false);
+  it('should return false when deleting non-existent agent', async () => {
+    expect(await registry.delete('nonexistent')).toBe(false);
   });
 
-  it('should persist agent to file', () => {
+  it('should persist agent to file', async () => {
     const config = makeAgentConfig();
-    registry.register(config);
+    await registry.register(config);
     const filePath = join(TEST_DATA_DIR, 'agents', 'test-agent.json');
     expect(existsSync(filePath)).toBe(true);
     const content = readFileSync(filePath, 'utf-8');
@@ -164,32 +164,54 @@ describe('AgentRegistry', () => {
   });
 
   it('should load agents from directory on startup', async () => {
-    // Manually create a persisted agent file
     const agentsDir = join(TEST_DATA_DIR, 'agents');
     mkdirSync(agentsDir, { recursive: true });
     const config = makeAgentConfig();
     const filePath = join(agentsDir, 'test-agent.json');
     require('fs').writeFileSync(filePath, JSON.stringify(config, null, 2));
 
-    // Create a new registry and load
     const newRegistry = new AgentRegistry(TEST_DATA_DIR);
     await newRegistry.load();
     expect(newRegistry.has('test-agent')).toBe(true);
   });
 
-  it('should load agents from config', () => {
+  it('should load agents from config', async () => {
     const configs = [
       makeAgentConfig({ id: 'agent-x' }),
       makeAgentConfig({ id: 'agent-y' }),
     ];
-    registry.loadFromConfig(configs);
+    await registry.loadFromConfig(configs);
     expect(registry.has('agent-x')).toBe(true);
     expect(registry.has('agent-y')).toBe(true);
     expect(registry.getAll()).toHaveLength(2);
   });
 
-  it('should skip config entries without id', () => {
-    registry.loadFromConfig([{ model: { provider: 'anthropic', name: 'claude' } } as AgentConfig]);
+  it('should skip config entries without id', async () => {
+    await registry.loadFromConfig([{ model: { provider: 'anthropic', name: 'claude' } } as AgentConfig]);
+    expect(registry.getAll()).toHaveLength(0);
+  });
+
+  it('should dispose old engine when registering same id twice (issue 0007)', async () => {
+    const config = makeAgentConfig();
+    const first = await registry.register(config);
+    let disposed = false;
+    (first as unknown as { engine: { dispose: () => Promise<void> } }).engine.dispose =
+      async () => { disposed = true; };
+    const second = await registry.register(config);
+    expect(disposed).toBe(true);
+    expect(second).not.toBe(first);
+  });
+
+  it('should disposeAll engines on shutdown (issue 0008)', async () => {
+    await registry.register(makeAgentConfig({ id: 'agent-a' }));
+    await registry.register(makeAgentConfig({ id: 'agent-b' }));
+    let disposeCount = 0;
+    for (const inst of registry.getAll()) {
+      (inst as unknown as { engine: { dispose: () => Promise<void> } }).engine.dispose =
+        async () => { disposeCount++; };
+    }
+    await registry.disposeAll();
+    expect(disposeCount).toBe(2);
     expect(registry.getAll()).toHaveLength(0);
   });
 });

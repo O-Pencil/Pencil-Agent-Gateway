@@ -2,13 +2,15 @@
 id: 0010
 title: loadConfig silent fallback boots Gateway with zero API keys
 severity: high
-status: open
+status: resolved
 area: src/config.ts
 reported: 2026-04-26
-updated: 2026-04-26
+updated: 2026-04-28
 related-files:
   - src/config.ts
   - src/server.ts
+related-commits:
+  - <set-on-commit>
 ---
 
 ## DIP Metadata
@@ -37,23 +39,22 @@ The fallback was originally meant to support running with environment
 variables only. It is too lenient: it silently wins even when the user
 explicitly pointed `GATEWAY_CONFIG` at a path that exists but is malformed.
 
-## Proposed fix
+## Proposed fix (applied)
 
-Differentiate "no config requested" from "config requested but bad":
-
-1. If `GATEWAY_CONFIG` is **explicitly set** and the path either does not
-   exist or fails to parse, throw immediately and let `server.ts` exit with
-   a non-zero status.
-2. If the path was the implicit default (`config/default.json`) and it does
-   not exist, fall back to env-only — but log at WARN and require at least
-   one API key sourced from env (e.g., `API_KEY=...`). If there is no key
-   from any source, refuse to start.
-3. Make the WARN message in the fallback path explicit:
-   `"Falling back to env-only config; this means apiKeys is currently empty
-   and all authenticated routes will return 401"`.
+1. `loadConfig` now distinguishes "explicit path" (caller arg or
+   `GATEWAY_CONFIG` env) from "implicit default":
+   - **Explicit + load fails** → throws `InvalidRequestError` with the
+     underlying file/parse error. `server.ts` propagates this to `process.exit(1)`.
+   - **Implicit + missing** → falls back to env-only (unchanged behavior),
+     but seeds `apiKeys` from `API_KEY` env if present.
+2. `server.ts` now refuses to start with `apiKeys.length === 0` unless
+   `GATEWAY_ALLOW_NO_AUTH=1` is set, with a precise error message that names
+   the three escape hatches (config file / `API_KEY` env / explicit override).
+3. Loud WARN logs added for both "fell back to env-only" and
+   "fallback produced zero API keys".
 
 ## Notes
 
 - Original review numbering: problem #10.
 - See also issue 0011 (`default.yaml` shipped but YAML loading rejected).
-  Both touch the same `loadConfig` flow and should be tackled together.
+  That one is still open and lives entirely inside `loadConfig`.

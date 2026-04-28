@@ -15,6 +15,10 @@ import { logger } from '../util/logger.js';
 import { type EngineAdapter } from '../engine/adapter.js';
 import { createNanoPencilAdapter } from '../engine/nano-adapter.js';
 
+interface DisposableEngine extends EngineAdapter {
+  dispose?: () => Promise<void> | void;
+}
+
 /**
  * Agent instance (runtime representation)
  */
@@ -70,6 +74,23 @@ export class AgentInstance {
       memory: this.config.memory || { mode: 'short-term', maxTurns: 20 },
     };
   }
+
+  /**
+   * Release resources held by this instance's engine.
+   * Safe to call multiple times.
+   */
+  async dispose(): Promise<void> {
+    const disposable = this.engine as DisposableEngine;
+    if (typeof disposable.dispose !== 'function') return;
+    try {
+      await disposable.dispose();
+    } catch (err) {
+      logger.warn('Engine dispose threw', {
+        agentId: this.id,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
 }
 
 /**
@@ -109,7 +130,7 @@ export class AgentRegistry {
           const filePath = join(agentsDir, file);
           const content = readFileSync(filePath, 'utf-8');
           const config = JSON.parse(content) as AgentConfig;
-          this.register(config);
+          await this.register(config);
           logger.info('Loaded agent from file', { id: config.id, file });
         }
       }
@@ -119,13 +140,26 @@ export class AgentRegistry {
   }
 
   /**
-   * Register a new agent instance
+   * Register a new agent instance.
+   *
+   * If an instance already exists for `config.id`, its engine is disposed
+   * before being replaced — otherwise per-session PencilAgent state from
+   * the old instance leaks (issue 0007).
    */
-  register(config: AgentConfig): AgentInstance {
+  async register(config: AgentConfig): Promise<AgentInstance> {
+    const previous = this.instances.get(config.id);
+    if (previous) {
+      logger.debug('Replacing existing agent — disposing old engine', { id: config.id });
+      await previous.dispose();
+    }
     const instance = new AgentInstance(config);
     this.instances.set(config.id, instance);
     this.persist(config);
-    logger.info('Agent registered', { id: config.id, modelId: instance.modelId });
+    logger.info('Agent registered', {
+      id: config.id,
+      modelId: instance.modelId,
+      replaced: !!previous,
+    });
     return instance;
   }
 
@@ -180,20 +214,36 @@ export class AgentRegistry {
   }
 
   /**
-   * Delete an agent instance
+   * Delete an agent instance and dispose its engine.
    */
-  delete(id: string): boolean {
-    const deleted = this.instances.delete(id);
-    if (deleted) {
-      const filePath = join(this.dataDir, 'agents', `${id}.json`);
-      try {
-        unlinkSync(filePath);
-        logger.info('Agent deleted', { id });
-      } catch {
-        // File might not exist, that's okay
-      }
+  async delete(id: string): Promise<boolean> {
+    const instance = this.instances.get(id);
+    if (!instance) return false;
+    await instance.dispose();
+    this.instances.delete(id);
+    const filePath = join(this.dataDir, 'agents', `${id}.json`);
+    try {
+      unlinkSync(filePath);
+      logger.info('Agent deleted', { id });
+    } catch {
+      // File might not exist, that's okay
     }
-    return deleted;
+    return true;
+  }
+
+  /**
+   * Dispose every registered agent's engine (issue 0008).
+   * Used during graceful shutdown. Errors per-instance are logged but never
+   * thrown — graceful shutdown must not be blocked by a single bad engine.
+   */
+  async disposeAll(): Promise<void> {
+    const ids = Array.from(this.instances.keys());
+    logger.info('Disposing all agents', { count: ids.length });
+    await Promise.all(ids.map(async (id) => {
+      const instance = this.instances.get(id);
+      if (instance) await instance.dispose();
+    }));
+    this.instances.clear();
   }
 
   /**
@@ -211,13 +261,13 @@ export class AgentRegistry {
   /**
    * Load agents from config (initial setup)
    */
-  loadFromConfig(agentsConfig: AgentConfig[]): void {
+  async loadFromConfig(agentsConfig: AgentConfig[]): Promise<void> {
     for (const config of agentsConfig) {
       if (!config.id) {
         logger.warn('Skipping agent config without id');
         continue;
       }
-      this.register(config);
+      await this.register(config);
     }
   }
 }

@@ -154,31 +154,45 @@ function loadConfigFile(filePath: string): unknown {
 }
 
 /**
- * Load gateway configuration from file or environment
+ * Load gateway configuration from file or environment.
+ *
+ * Failure semantics (issue 0010):
+ *   - When the caller passed an explicit `configPath` OR `GATEWAY_CONFIG` is
+ *     set, any load/parse failure is **fatal** — silent fallback hides
+ *     operator typos that turn the gateway into "401 to everything".
+ *   - Only when the implicit default path (`config/default.json`) is missing
+ *     do we fall back to env-only. The fallback honors `API_KEY` so you can
+ *     bring up a smoke instance with a single env var.
  */
 export function loadConfig(configPath?: string): GatewayConfig {
-  // Determine config file path
   const defaultConfigPath = resolve(__dirname, '../config/default.json');
+  const explicitlyRequested = !!configPath || !!process.env.GATEWAY_CONFIG;
   const configFilePath = configPath
     ? resolve(configPath)
     : process.env.GATEWAY_CONFIG || defaultConfigPath;
 
-  logger.info('Loading configuration', { path: configFilePath });
+  logger.info('Loading configuration', { path: configFilePath, explicit: explicitlyRequested });
 
-  // Load and parse config file
   let rawConfig: unknown;
   try {
-    // For MVP, try to read as JSON
     if (existsSync(configFilePath) && configFilePath.endsWith('.yaml')) {
-      // YAML support would need js-yaml dependency
       throw new InvalidRequestError(
         'YAML support requires js-yaml dependency. Using default.json instead.'
       );
     }
     rawConfig = loadConfigFile(configFilePath);
   } catch (err) {
-    // If file loading fails, use default config with env vars
-    logger.warn('Failed to load config file, using defaults', { error: err });
+    if (explicitlyRequested) {
+      // Don't degrade silently when the operator explicitly picked a path.
+      throw new InvalidRequestError(
+        `Failed to load configuration at ${configFilePath}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+    logger.warn(
+      'No config file found at default path, falling back to env-only configuration',
+      { defaultPath: configFilePath },
+    );
+    const envApiKey = process.env.API_KEY;
     rawConfig = {
       gateway: {
         host: process.env.HOST || '0.0.0.0',
@@ -187,10 +201,18 @@ export function loadConfig(configPath?: string): GatewayConfig {
         corsOrigins: process.env.CORS_ORIGINS || '*',
         requestTimeoutMs: parseInt(process.env.REQUEST_TIMEOUT_MS || '120000', 10),
       },
-      apiKeys: [],
+      apiKeys: envApiKey
+        ? [{ key: envApiKey, label: 'env-API_KEY', allowedAgents: '*' }]
+        : [],
       dataDir: process.env.DATA_DIR || './data',
       agents: [],
     };
+    if (!envApiKey) {
+      logger.warn(
+        'env-only fallback produced zero API keys — server will refuse to start ' +
+          'unless API_KEY env is set or GATEWAY_ALLOW_NO_AUTH=1.',
+      );
+    }
   }
 
   // Interpolate environment variables

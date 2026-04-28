@@ -114,7 +114,7 @@ export function createApp(): Hono<AppEnv> {
     }
 
     const registry = getRegistry();
-    const instance = registry.register(body);
+    const instance = await registry.register(body);
 
     logger.info('Agent created/updated', {
       requestId: c.get('requestId'),
@@ -130,7 +130,7 @@ export function createApp(): Hono<AppEnv> {
   });
 
   // Agents endpoint - delete agent
-  v1.delete('/agents/:id', (c) => {
+  v1.delete('/agents/:id', async (c) => {
     const id = c.req.param('id');
     const registry = getRegistry();
 
@@ -138,7 +138,7 @@ export function createApp(): Hono<AppEnv> {
       throw new NotFoundError(`Agent instance '${id}' not found`);
     }
 
-    registry.delete(id);
+    await registry.delete(id);
 
     logger.info('Agent deleted', {
       requestId: c.get('requestId'),

@@ -2,14 +2,16 @@
 id: 0008
 title: SIGINT/SIGTERM does not dispose per-agent engines
 severity: high
-status: open
+status: resolved
 area: src/server.ts
 reported: 2026-04-26
-updated: 2026-04-26
+updated: 2026-04-28
 related-files:
   - src/server.ts
   - src/agent/registry.ts
   - src/engine/nano-adapter.ts
+related-commits:
+  - <set-on-commit>
 ---
 
 ## DIP Metadata
@@ -39,23 +41,22 @@ receiving `SIGTERM` therefore exits with:
 also lacks a `disposeAll()` helper, so even if the bootstrap wanted to call
 it, there is no API.
 
-## Proposed fix
+## Proposed fix (applied)
 
-1. Add `AgentRegistry.disposeAll(): Promise<void>` that iterates instances and
-   awaits `instance.dispose()` for each (see issue 0007 for the per-instance
-   `dispose`).
-2. In `server.ts` `shutdown(signal)`:
-   - Stop accepting new connections (`server.close()`).
-   - `await registry.disposeAll()`.
-   - Then `process.exit(0)`.
-3. Bound the wait with a configurable `shutdownTimeoutMs` (default ~10s) so a
-   stuck engine cannot block container termination indefinitely. On timeout,
-   log a warning and exit anyway.
+1. `AgentRegistry.disposeAll()` added: iterates instances in parallel and
+   `await`s each `instance.dispose()`. Per-instance errors are logged but
+   never thrown — graceful shutdown is best-effort.
+2. `server.ts` `shutdown(signal)` now:
+   - flips a `shuttingDown` guard (signal handlers fire repeatedly under load),
+   - calls `server.close()`,
+   - races `registry.disposeAll()` against `SHUTDOWN_TIMEOUT_MS` (default 10s),
+   - then `process.exit(0)`.
+3. A regression test (`should disposeAll engines on shutdown`) confirms each
+   instance's `engine.dispose` is invoked once.
 
 ## Notes
 
 - Original review numbering: problem #8.
-- Pairs with issue 0007 — both want the same `EngineAdapter.dispose()` plumbed
-  through the registry.
-- Optional: also dispose the `SessionStore` (flush pending writes) once it
-  becomes async (see future LRU/TTL work).
+- `SHUTDOWN_TIMEOUT_MS` env var is honored if set; otherwise 10000ms.
+- `SessionStore` flush hook is intentionally left out — sessions are
+  written through synchronously today (see future LRU/TTL work).
