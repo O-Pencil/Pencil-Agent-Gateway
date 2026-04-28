@@ -13,6 +13,13 @@
  * caller-specified model is passed through — PencilAgent silently drops the model
  * parameter and lets the SDK auto-discover from local config, which breaks in
  * Gateway mode where the model comes from the HTTP request.
+ *
+ * Completion is read from `agent_end` (authoritative final state), not
+ * `message_end` — the SDK's inner agent.js catches model-call errors and emits
+ * them as `agent_end` with `messages[].errorMessage` set, *without* firing a
+ * `message_end`. Listening only on `message_end` therefore gives the caller a
+ * misleading "empty response" instead of the actual failure (bad model, bad
+ * key, rate limit, etc.).
  */
 
 import {
@@ -29,11 +36,46 @@ import type { AgentConfig } from '../config.js';
 import { logger } from '../util/logger.js';
 import { EngineError } from '../util/errors.js';
 
-/**
- * Holds a per-session AgentSession + its event listener state.
- */
 interface SessionEntry {
   session: AgentSession;
+}
+
+/**
+ * Pull the final assistant text out of an `agent_end` event payload.
+ * Returns `null` if there is no assistant message in the payload.
+ */
+function extractAssistantText(messages: unknown): string | null {
+  if (!Array.isArray(messages)) return null;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i] as { role?: string; content?: unknown };
+    if (m?.role !== 'assistant') continue;
+    if (typeof m.content === 'string') return m.content;
+    if (Array.isArray(m.content)) {
+      let out = '';
+      for (const block of m.content as Array<{ type?: string; text?: string }>) {
+        if (block?.type === 'text' && typeof block.text === 'string') {
+          out += block.text;
+        }
+      }
+      return out;
+    }
+  }
+  return null;
+}
+
+/**
+ * Pull `errorMessage` off the last assistant message in an `agent_end` payload.
+ */
+function extractErrorMessage(messages: unknown): string | null {
+  if (!Array.isArray(messages)) return null;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i] as { role?: string; errorMessage?: string; stopReason?: string };
+    if (m?.role !== 'assistant') continue;
+    if (typeof m.errorMessage === 'string' && m.errorMessage.length > 0) return m.errorMessage;
+    if (m.stopReason === 'error') return 'Engine reported stopReason=error without an errorMessage';
+    return null;
+  }
+  return null;
 }
 
 export class NanoPencilEngineAdapter implements EngineAdapter {
@@ -51,7 +93,6 @@ export class NanoPencilEngineAdapter implements EngineAdapter {
     this.modelName = config.model.name;
     this.apiKey = config.model.apiKey;
 
-    // Create isolated auth storage (in-memory, no file I/O)
     this.authStorage = AuthStorage.inMemory();
     this.modelRegistry = new ModelRegistry(this.authStorage);
 
@@ -61,10 +102,6 @@ export class NanoPencilEngineAdapter implements EngineAdapter {
     });
   }
 
-  /**
-   * Ensure the API key is registered for this provider.
-   * Called lazily before each session creation so the key is always fresh.
-   */
   private async ensureApiKey(): Promise<void> {
     if (this.apiKey) {
       await this.authStorage.set(this.provider, {
@@ -74,9 +111,6 @@ export class NanoPencilEngineAdapter implements EngineAdapter {
     }
   }
 
-  /**
-   * Resolve the Model object from the registry. Throws if not found.
-   */
   private resolveModel() {
     const model = this.modelRegistry.find(this.provider, this.modelName);
     if (!model) {
@@ -88,9 +122,6 @@ export class NanoPencilEngineAdapter implements EngineAdapter {
     return model;
   }
 
-  /**
-   * Get or create an AgentSession for the given sessionId.
-   */
   private async getOrCreateSession(sessionId: string): Promise<SessionEntry> {
     const existing = this.sessions.get(sessionId);
     if (existing) return existing;
@@ -155,18 +186,23 @@ export class NanoPencilEngineAdapter implements EngineAdapter {
   ): Promise<EngineRunResult> {
     const message = this.buildUserMessage(request);
 
-    let collectedText = '';
+    let finalText: string | null = null;
+    let agentEndError: string | null = null;
+    let sdkError: string | null = null;
 
     const listener = (event: AgentSessionEvent) => {
-      if (event.type === 'message_end' && event.message?.role === 'assistant') {
-        const content = event.message.content;
-        if (typeof content === 'string') {
-          collectedText += content;
-        } else if (Array.isArray(content)) {
-          for (const block of content) {
-            if (block.type === 'text') collectedText += block.text;
-          }
+      logger.debug('SDK event', { sessionId: request.sessionId, type: event.type });
+
+      if (event.type === 'agent_end') {
+        const err = extractErrorMessage(event.messages);
+        if (err) {
+          agentEndError = err;
+        } else {
+          const text = extractAssistantText(event.messages);
+          if (text !== null) finalText = text;
         }
+      } else if (event.type === 'sdk:error') {
+        sdkError = event.error instanceof Error ? event.error.message : String(event.error);
       }
     };
 
@@ -183,12 +219,22 @@ export class NanoPencilEngineAdapter implements EngineAdapter {
       unsub();
     }
 
-    if (!collectedText.trim()) {
-      throw new EngineError('Engine returned empty response');
+    if (agentEndError) {
+      throw new EngineError(`Engine reported error: ${agentEndError}`);
+    }
+    if (sdkError && finalText === null) {
+      throw new EngineError(`Engine SDK error: ${sdkError}`);
+    }
+    if (finalText === null) {
+      throw new EngineError(
+        'Engine completed without emitting an agent_end event ' +
+          '(no assistant message and no error reported). ' +
+          'Enable LOG_LEVEL=debug to see the raw SDK event stream.',
+      );
     }
 
     return {
-      text: collectedText,
+      text: finalText,
       finishReason: 'stop',
       usage: { promptTokens: 0, completionTokens: 0, totalTokens: 0 },
     };
@@ -205,6 +251,7 @@ export class NanoPencilEngineAdapter implements EngineAdapter {
     let collectedText = '';
     let finishReason: EngineRunResult['finishReason'] = 'stop';
     let doneEmitted = false;
+    let errorReported = false;
 
     const emitDone = (reason: EngineRunResult['finishReason']) => {
       if (doneEmitted) return;
@@ -213,8 +260,15 @@ export class NanoPencilEngineAdapter implements EngineAdapter {
       options.onDelta!({ type: 'done', finishReason: reason });
     };
 
+    const emitError = (msg: string) => {
+      errorReported = true;
+      options.onDelta!({ type: 'error', error: msg });
+    };
+
     const listener = (event: AgentSessionEvent) => {
-      // Text deltas
+      logger.debug('SDK event', { sessionId: request.sessionId, type: event.type });
+
+      // Incremental text deltas
       if (event.type === 'message_update' && event.message?.role === 'assistant') {
         const ae = event.assistantMessageEvent;
         if (ae?.type === 'text_delta' && 'delta' in ae) {
@@ -224,15 +278,30 @@ export class NanoPencilEngineAdapter implements EngineAdapter {
         }
       }
 
-      // Completion
-      if (event.type === 'agent_end' || event.type === 'turn_end') {
+      // Authoritative completion / error event
+      if (event.type === 'agent_end') {
+        const err = extractErrorMessage(event.messages);
+        if (err) {
+          emitError(`Engine reported error: ${err}`);
+          emitDone('error');
+          return;
+        }
+        // If the SDK never streamed deltas, fall back to one-shot delta from the
+        // final assistant text so the client sees something.
+        if (collectedText === '') {
+          const text = extractAssistantText(event.messages);
+          if (text !== null && text.length > 0) {
+            collectedText = text;
+            options.onDelta!({ type: 'delta', content: text });
+          }
+        }
         emitDone('stop');
+        return;
       }
 
-      // Errors
       if (event.type === 'sdk:error') {
         const msg = event.error instanceof Error ? event.error.message : String(event.error);
-        options.onDelta!({ type: 'error', error: msg });
+        emitError(`Engine SDK error: ${msg}`);
       }
     };
 
@@ -240,10 +309,16 @@ export class NanoPencilEngineAdapter implements EngineAdapter {
 
     try {
       await session.prompt(message);
-
-      // Fallback: collect from message_end if no deltas arrived
-      if (collectedText === '') {
-        emitDone('stop');
+      // Defensive: prompt resolved but no agent_end fired
+      if (!doneEmitted) {
+        if (!errorReported && collectedText === '') {
+          emitError(
+            'Engine completed without emitting an agent_end event ' +
+              '(no assistant message and no error reported). ' +
+              'Enable LOG_LEVEL=debug to see the raw SDK event stream.',
+          );
+        }
+        emitDone(errorReported ? 'error' : 'stop');
       }
     } catch (err) {
       if (options.signal?.aborted) {
@@ -255,8 +330,8 @@ export class NanoPencilEngineAdapter implements EngineAdapter {
           sessionId: request.sessionId,
           error: msg,
         });
-        options.onDelta!({ type: 'error', error: msg });
-        finishReason = 'error';
+        emitError(`Engine run failed: ${msg}`);
+        emitDone('error');
       }
     } finally {
       unsub();
@@ -283,10 +358,7 @@ export class NanoPencilEngineAdapter implements EngineAdapter {
 
   async reset(sessionId?: string): Promise<void> {
     if (sessionId) {
-      const entry = this.sessions.get(sessionId);
-      if (entry) {
-        this.sessions.delete(sessionId);
-      }
+      this.sessions.delete(sessionId);
       return;
     }
     this.sessions.clear();
