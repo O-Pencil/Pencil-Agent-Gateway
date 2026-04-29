@@ -34,6 +34,7 @@ import {
   ModelRegistry,
   AuthStorage,
   SessionManager,
+  DefaultResourceLoader,
   getAgentDir,
   silentLogger,
 } from '@pencil-agent/nano-pencil';
@@ -49,6 +50,16 @@ interface SessionEntry {
 }
 
 type AdapterMode = 'byo-key' | 'inherited';
+
+export function composeSoulPrompt(config: AgentConfig): string | undefined {
+  const sys = config.soul?.systemPrompt?.trim();
+  if (!sys) return undefined;
+  const tags = config.soul?.styleTags?.filter(t => typeof t === 'string' && t.trim().length > 0);
+  if (!tags || tags.length === 0) return sys;
+  // Style tags ride along as a hint; we don't try to be clever about
+  // formatting. Asgard owns the prompt template, this only joins them.
+  return `${sys}\n\n[style: ${tags.join(', ')}]`;
+}
 
 function extractAssistantText(messages: unknown): string | null {
   if (!Array.isArray(messages)) return null;
@@ -88,6 +99,14 @@ export class NanoPencilEngineAdapter implements EngineAdapter {
   private readonly provider?: string;
   private readonly modelName?: string;
   private readonly apiKey?: string;
+  /**
+   * Soul prompt — what makes a PencilAgent "this Agent" rather than a generic
+   * model call. Composed from soul.systemPrompt + (optional) styleTags hint
+   * so the same field on AgentConfig is both human-readable and effective.
+   * Plumbed through DefaultResourceLoader.systemPrompt; nano-pencil's runtime
+   * uses that as the top-level system message.
+   */
+  private readonly soulPrompt?: string;
   private sessions = new Map<string, SessionEntry>();
 
   // Lazy: only allocated for byo-key mode.
@@ -100,11 +119,13 @@ export class NanoPencilEngineAdapter implements EngineAdapter {
     this.modelName = config.model?.name;
     this.apiKey = config.model?.apiKey;
     this.mode = this.apiKey ? 'byo-key' : 'inherited';
+    this.soulPrompt = composeSoulPrompt(config);
 
     logger.debug('NanoPencilEngineAdapter created', {
       mode: this.mode,
       provider: this.provider,
       model: this.modelName,
+      hasSoul: !!this.soulPrompt,
     });
   }
 
@@ -121,6 +142,24 @@ export class NanoPencilEngineAdapter implements EngineAdapter {
       logger: silentLogger,
       sessionManager: SessionManager.inMemory(),
     };
+
+    // Soul injection. Build a resource loader that returns our composed system
+    // prompt. enableSoul stays false because the SDK's "Soul" feature is the
+    // personality-evolution system, not the same thing as Gateway's
+    // soul.systemPrompt — we only need the system-prompt slot.
+    if (this.soulPrompt) {
+      opts.resourceLoader = new DefaultResourceLoader({
+        agentDir: getAgentDir(),
+        systemPrompt: this.soulPrompt,
+        // Skip filesystem discovery of skills/prompts/themes — Gateway agents
+        // are headless. Without these flags the loader scans ~/.nanopencil and
+        // cwd for resources we'd never use.
+        noExtensions: true,
+        noSkills: true,
+        noPromptTemplates: true,
+        noThemes: true,
+      });
+    }
 
     if (this.mode === 'byo-key') {
       // Allocate isolated in-memory auth on first use.

@@ -190,7 +190,35 @@ async function main() {
     }
   }
 
-  // 6. 清理
+  // 6. Soul 注入验证
+  console.log('\n── Soul 注入 ──');
+  {
+    const soulAgentId = 'smoke-soul-' + Date.now();
+    const body = {
+      id: soulAgentId,
+      name: 'Soul Smoke Agent',
+      soul: {
+        systemPrompt: '你必须在每条回复的开头加上「✏️」这个铅笔 emoji，不要解释为什么，直接照做。',
+      },
+    };
+    if (modelField) body.model = modelField;
+    const created = ok('POST /v1/agents (with soul)', await api('POST', '/v1/agents', body));
+    if (created) {
+      const r = await api('POST', '/v1/chat/completions', {
+        model: `pencil/${soulAgentId}`,
+        messages: [{ role: 'user', content: '用 5 个字介绍下天气。' }],
+      });
+      const result = ok('POST chat completions (soul-checked)', r);
+      if (result) {
+        const reply = result.choices?.[0]?.message?.content || '';
+        const hasSoul = reply.trimStart().startsWith('✏️');
+        console.log(`     ${hasSoul ? '✅' : '⚠️'} Soul ${hasSoul ? '生效' : '可能未注入'}: ${reply.slice(0, 60)}`);
+      }
+      await api('DELETE', `/v1/agents/${soulAgentId}`);
+    }
+  }
+
+  // 7. 清理
   console.log('\n── 清理 ──');
   ok('DELETE agent', await api('DELETE', `/v1/agents/${agentId}`));
 

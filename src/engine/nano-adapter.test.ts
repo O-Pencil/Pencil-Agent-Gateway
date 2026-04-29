@@ -11,7 +11,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { NanoPencilEngineAdapter, createNanoPencilAdapter } from './nano-adapter.js';
+import { NanoPencilEngineAdapter, createNanoPencilAdapter, composeSoulPrompt } from './nano-adapter.js';
 import type { AgentConfig } from '../config.js';
 
 function makeConfig(overrides?: Partial<AgentConfig>): AgentConfig {
@@ -81,5 +81,46 @@ describe('NanoPencilEngineAdapter', () => {
   it('should have run method', () => {
     const adapter = createNanoPencilAdapter(makeConfig());
     expect(typeof adapter.run).toBe('function');
+  });
+
+  it('accepts soul.systemPrompt without throwing', () => {
+    const adapter = createNanoPencilAdapter(
+      makeConfig({
+        soul: { systemPrompt: '你是小铅笔，专注帮用户写作。' },
+      }),
+    );
+    expect(adapter).toBeDefined();
+  });
+});
+
+describe('composeSoulPrompt', () => {
+  it('returns undefined when no soul configured', () => {
+    expect(composeSoulPrompt({ id: 'a' })).toBeUndefined();
+  });
+
+  it('returns undefined when systemPrompt is empty/whitespace', () => {
+    expect(composeSoulPrompt({ id: 'a', soul: { systemPrompt: '   ' } })).toBeUndefined();
+  });
+
+  it('returns trimmed systemPrompt when no styleTags', () => {
+    expect(
+      composeSoulPrompt({ id: 'a', soul: { systemPrompt: 'Be concise.' } }),
+    ).toBe('Be concise.');
+  });
+
+  it('appends style tags when present', () => {
+    const result = composeSoulPrompt({
+      id: 'a',
+      soul: { systemPrompt: 'Be concise.', styleTags: ['zh-cn', 'literary'] },
+    });
+    expect(result).toBe('Be concise.\n\n[style: zh-cn, literary]');
+  });
+
+  it('ignores empty/whitespace style tags', () => {
+    const result = composeSoulPrompt({
+      id: 'a',
+      soul: { systemPrompt: 'Be concise.', styleTags: ['', '  ', 'zh-cn'] },
+    });
+    expect(result).toBe('Be concise.\n\n[style: zh-cn]');
   });
 });
