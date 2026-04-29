@@ -1,0 +1,19 @@
+{
+  "_comment": "复制为 deploy/gateway.json 后改 apiKeys[0].key 为 .env 里 GATEWAY_INTERNAL_KEY 的实际值。docker-compose.production.yml 把这个文件以只读方式挂进 pencil-gateway 容器的 /app/config/gateway.json。",
+  "gateway": {
+    "host": "0.0.0.0",
+    "port": 8080,
+    "logLevel": "info",
+    "corsOrigins": "*",
+    "requestTimeoutMs": 120000
+  },
+  "apiKeys": [
+    {
+      "key": "REPLACE_WITH_GATEWAY_INTERNAL_KEY",
+      "label": "asgard-internal",
+      "allowedAgents": "*"
+    }
+  ],
+  "dataDir": "/app/data",
+  "agents": []
+}

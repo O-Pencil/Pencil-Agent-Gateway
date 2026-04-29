@@ -1,0 +1,52 @@
+# Caddyfile — Asgard + Pencil Agent Gateway 反向代理
+#
+# 复制为 Caddyfile 并把 {$DOMAIN} 用法保持原样，Caddy 会从环境变量读取
+# （docker-compose.production.yml 已经把 DOMAIN / ACME_EMAIL 注入到 caddy 容器）。
+
+{
+    email {$ACME_EMAIL}
+}
+
+{$DOMAIN} {
+    encode zstd gzip
+
+    # ─── Asgard API（含 SSE 反代到 Gateway）────────────────────
+    # 任何 /api/* 都走 asgard-api。SSE 路径必须关闭 buffering，
+    # flush_interval -1 让每个事件立即推到客户端。
+    handle_path /api/* {
+        reverse_proxy asgard-api:8000 {
+            transport http {
+                read_buffer 16KB
+                # SSE 单连接可能挂很久，关掉读超时
+                read_timeout 0s
+            }
+            flush_interval -1
+            header_up X-Real-IP {remote_host}
+            header_up X-Forwarded-For {remote_host}
+            header_up X-Forwarded-Proto {scheme}
+        }
+    }
+
+    # ─── Asgard Web（前端静态产物）────────────────────────────
+    handle {
+        reverse_proxy asgard-web:80
+    }
+
+    # ─── 安全头 ──────────────────────────────────────────────
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains"
+        X-Content-Type-Options "nosniff"
+        Referrer-Policy "strict-origin-when-cross-origin"
+        # 不要给 SSE 路径加 X-Frame-Options DENY 之类，会让前端嵌入失败
+    }
+
+    # ─── 日志 ────────────────────────────────────────────────
+    log {
+        output file /var/log/caddy/access.log {
+            roll_size 100MiB
+            roll_keep 10
+            roll_keep_for 720h
+        }
+        format json
+    }
+}

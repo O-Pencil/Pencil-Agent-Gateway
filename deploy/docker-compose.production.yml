@@ -1,0 +1,148 @@
+# Pencil Agent Gateway + Asgard 全栈生产编排
+#
+# 5 容器：caddy（TLS 终止）→ asgard-web | asgard-api | pencil-gateway
+#                              ↳ asgard-api → asgard-db (Postgres)
+#                              ↳ asgard-api → pencil-gateway (内网 only)
+#
+# 拓扑细节见 ../docs/11-containerized-deployment.md
+# 配置变量见 .env.example，运维步骤见 README.md
+
+name: pencil-stack
+
+networks:
+  edge:           # 对外，仅 caddy
+    driver: bridge
+  internal:       # asgard-api 调 gateway / 调 db 走这里，宿主机端口不映射
+    driver: bridge
+
+volumes:
+  caddy-data:     # ACME 证书 + Caddy 状态
+  caddy-config:
+  postgres-data:  # Asgard DB
+  gateway-data:   # PencilAgent 配置 + sessions
+  gateway-auth:   # nano-pencil auth.json 持久化
+  caddy-logs:
+
+services:
+  # ─────────────────────────────────────────────────────────
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"   # HTTP/3
+    environment:
+      DOMAIN: ${DOMAIN}
+      ACME_EMAIL: ${ACME_EMAIL}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+      - caddy-logs:/var/log/caddy
+    networks:
+      - edge
+      - internal
+    depends_on:
+      - asgard-web
+      - asgard-api
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--spider", "http://localhost:80"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  # ─────────────────────────────────────────────────────────
+  asgard-web:
+    # 镜像由 Asgard-web 仓库构建发布；本地构建可改成 build: ../../Asgard-web
+    image: asgard-web:latest
+    restart: unless-stopped
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--spider", "http://localhost:80"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  # ─────────────────────────────────────────────────────────
+  asgard-api:
+    # 镜像由 Asgard-api 仓库构建发布；本地构建可改成 build: ../../Asgard-api
+    image: asgard-api:latest
+    restart: unless-stopped
+    environment:
+      # DB
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@asgard-db:5432/${POSTGRES_DB}
+      # JWT
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY}
+      # Pencil Agent Gateway
+      PENCIL_GATEWAY_URL: http://pencil-gateway:8080
+      PENCIL_GATEWAY_INTERNAL_KEY: ${GATEWAY_INTERNAL_KEY}
+      PENCIL_GATEWAY_CONNECT_TIMEOUT_S: "5.0"
+      # 流式响应不设 read 超时
+      PENCIL_GATEWAY_READ_TIMEOUT_S: ""
+    networks:
+      - internal
+    depends_on:
+      asgard-db:
+        condition: service_healthy
+      pencil-gateway:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/healthz').status==200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  # ─────────────────────────────────────────────────────────
+  asgard-db:
+    image: postgres:15-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ─────────────────────────────────────────────────────────
+  pencil-gateway:
+    image: pencil-agent-gateway:latest
+    # 本地从源码构建：取消注释下面三行，注释掉 image
+    # build:
+    #   context: ../
+    #   dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      PORT: "8080"
+      HOST: "0.0.0.0"
+      LOG_LEVEL: info
+      DATA_DIR: /app/data
+      SHUTDOWN_TIMEOUT_MS: ${SHUTDOWN_TIMEOUT_MS:-10000}
+      # internal-key 通过配置文件而不是 API_KEY env 注入，让多 key 场景可扩展
+      GATEWAY_CONFIG: /app/config/gateway.json
+      # 可选：直接走 env 模式时把 provider key 透传到容器
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
+    volumes:
+      - gateway-data:/app/data
+      # 配置文件由部署侧渲染（见 README.md 步骤），生成后挂只读
+      - ./gateway.json:/app/config/gateway.json:ro
+      # nano-pencil inherited 模式：把宿主机注入的 auth.json 挂进容器
+      - gateway-auth:/root/.nanopencil
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:8080/healthz', r => process.exit(r.statusCode === 200 ? 0 : 1))"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s

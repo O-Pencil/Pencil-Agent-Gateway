@@ -34,5 +34,11 @@ logs/
 config/local.yaml
 config/production.yaml
 
+# Deploy: rendered secrets (keep .example templates, ignore real ones)
+deploy/.env
+deploy/Caddyfile
+deploy/gateway.json
+deploy/secrets/
+
 #extensions
 .memory-experiments/
