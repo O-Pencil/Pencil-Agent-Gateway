@@ -73,6 +73,7 @@ services:
     environment:
       # DB
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@asgard-db:5432/${POSTGRES_DB}
+      DB_TABLE_PREFIX: ${DB_TABLE_PREFIX:-asgard_}
       # JWT
       JWT_SECRET_KEY: ${JWT_SECRET_KEY}
       # Pencil Agent Gateway
@@ -81,6 +82,11 @@ services:
       PENCIL_GATEWAY_CONNECT_TIMEOUT_S: "5.0"
       # 流式响应不设 read 超时
       PENCIL_GATEWAY_READ_TIMEOUT_S: ""
+      SINGLE_USER_MODE: ${SINGLE_USER_MODE:-true}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@asgard.dev}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-password}
+      PENCIL_DEFAULT_PROVIDER: ${PENCIL_DEFAULT_PROVIDER:-openai}
+      PENCIL_DEFAULT_MODEL: ${PENCIL_DEFAULT_MODEL:-gpt-4.1-mini}
     networks:
       - internal
     depends_on:
@@ -89,7 +95,7 @@ services:
       pencil-gateway:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/healthz').status==200 else 1)"]
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health').status==200 else 1)"]
       interval: 30s
       timeout: 5s
       retries: 3

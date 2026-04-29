@@ -51,6 +51,21 @@ interface SessionEntry {
 
 type AdapterMode = 'byo-key' | 'inherited';
 
+function providerEnvApiKey(provider?: string): string | undefined {
+  if (!provider) return undefined;
+  const normalized = provider.toLowerCase().replace(/[^a-z0-9]/g, '_');
+  const candidates = [
+    `${normalized.toUpperCase()}_API_KEY`,
+    provider.toUpperCase().replace(/[^A-Z0-9]/g, '_') + '_API_KEY',
+  ];
+  if (normalized === 'gemini') candidates.push('GOOGLE_API_KEY');
+  for (const name of candidates) {
+    const value = process.env[name];
+    if (value && value.trim()) return value.trim();
+  }
+  return undefined;
+}
+
 export function composeSoulPrompt(config: AgentConfig): string | undefined {
   const sys = config.soul?.systemPrompt?.trim();
   if (!sys) return undefined;
@@ -120,7 +135,7 @@ export class NanoPencilEngineAdapter implements EngineAdapter {
   constructor(config: AgentConfig) {
     this.provider = config.model?.provider;
     this.modelName = config.model?.name;
-    this.apiKey = config.model?.apiKey;
+    this.apiKey = config.model?.apiKey ?? providerEnvApiKey(this.provider);
     this.mode = this.apiKey ? 'byo-key' : 'inherited';
     this.soulPrompt = composeSoulPrompt(config);
 
@@ -147,7 +162,7 @@ export class NanoPencilEngineAdapter implements EngineAdapter {
 
     this.provider = config.model?.provider;
     this.modelName = config.model?.name;
-    this.apiKey = config.model?.apiKey;
+    this.apiKey = config.model?.apiKey ?? providerEnvApiKey(this.provider);
     this.mode = this.apiKey ? 'byo-key' : 'inherited';
     this.soulPrompt = composeSoulPrompt(config);
 

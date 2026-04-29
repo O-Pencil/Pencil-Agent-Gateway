@@ -42,3 +42,4 @@ deploy/secrets/
 
 #extensions
 .memory-experiments/
+.claude/
