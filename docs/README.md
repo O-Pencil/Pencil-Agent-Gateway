@@ -4,7 +4,7 @@ status: active
 scope: docs-index
 owner: pencil-agent-gateway maintainers
 created: 2026-04-25
-updated: 2026-04-28
+updated: 2026-04-29
 ---
 
 # Pencil Agent Gateway Docs
@@ -58,6 +58,9 @@ updated: 2026-04-28
 
 12. [11-containerized-deployment.md](./11-containerized-deployment.md)
    - Asgard + Gateway 容器化部署、内部网络、凭据、资源估算和运维检查清单。
+
+13. [12-asgard-web-ui-guide.md](./12-asgard-web-ui-guide.md)
+   - Asgard-web 前端接入指南：信息架构、4 个核心页面（Agent 列表 / 创建表单 / 对话窗 / Key 管理）、SSE 消费 + AbortController、错误展示模式。
 
 ## Status
 
