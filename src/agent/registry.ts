@@ -24,11 +24,15 @@ interface DisposableEngine extends EngineAdapter {
  */
 export class AgentInstance {
   readonly id: string;
-  readonly name: string;
-  readonly config: AgentConfig;
   readonly modelId: string;
   readonly engine: EngineAdapter;
-  createdAt: number;
+  readonly createdAt: number;
+
+  // Mutable: PUT /v1/agents/:id rewrites these without re-creating the
+  // instance, so existing engine sessions stay alive.
+  name: string;
+  config: AgentConfig;
+  updatedAt: number;
 
   constructor(config: AgentConfig) {
     this.id = config.id;
@@ -36,6 +40,7 @@ export class AgentInstance {
     this.config = config;
     this.modelId = `pencil/${config.id}`;
     this.createdAt = Date.now();
+    this.updatedAt = this.createdAt;
 
     // Bind the appropriate engine adapter based on config
     const engineType = config.engine?.type || 'nano-pencil';
@@ -72,7 +77,32 @@ export class AgentInstance {
       name: this.name,
       engine: this.config.engine?.type || 'nano-pencil',
       memory: this.config.memory || { mode: 'short-term', maxTurns: 20 },
+      hasSoul: !!this.config.soul?.systemPrompt,
+      createdAt: this.createdAt,
+      updatedAt: this.updatedAt,
     };
+  }
+
+  /**
+   * Apply a config update in place. Existing engine sessions keep their
+   * captured Soul/model — that is the point of update-vs-replace; updating
+   * Soul should not destroy a user's running conversation. New sessions
+   * created after this call use the new config.
+   */
+  applyUpdate(config: AgentConfig): void {
+    this.config = config;
+    this.name = config.name || config.id;
+    this.updatedAt = Date.now();
+    const reconfigurable = this.engine as EngineAdapter & {
+      reconfigure?: (c: AgentConfig) => void;
+    };
+    if (typeof reconfigurable.reconfigure === 'function') {
+      reconfigurable.reconfigure(config);
+    } else {
+      logger.warn('Engine does not support reconfigure(); update applied at instance level only', {
+        id: this.id,
+      });
+    }
   }
 
   /**
@@ -160,6 +190,35 @@ export class AgentRegistry {
       modelId: instance.modelId,
       replaced: !!previous,
     });
+    return instance;
+  }
+
+  /**
+   * Update an existing agent's configuration without disposing its engine.
+   *
+   * Differs from `register()` (POST semantics): keeps in-memory sessions and
+   * conversation history. Sessions created before this call retain their
+   * original Soul/model; new sessions see the new config. This is the right
+   * semantics for "user tweaks Soul prompt" — you don't want their open chat
+   * to lose history every time they nudge the prompt.
+   *
+   * Throws if the agent does not exist; callers (e.g. PUT route) should use
+   * 404 in that case.
+   */
+  async update(id: string, config: AgentConfig): Promise<AgentInstance> {
+    const instance = this.instances.get(id);
+    if (!instance) {
+      throw new InvalidRequestError(`Agent '${id}' not found — use POST to create`);
+    }
+    if (config.id && config.id !== id) {
+      throw new InvalidRequestError(
+        `Path id '${id}' does not match body id '${config.id}'; agent ids are immutable`,
+      );
+    }
+    const merged: AgentConfig = { ...config, id };
+    instance.applyUpdate(merged);
+    this.persist(merged);
+    logger.info('Agent updated', { id, hasSoul: !!merged.soul?.systemPrompt });
     return instance;
   }
 

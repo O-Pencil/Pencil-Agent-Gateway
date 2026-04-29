@@ -202,6 +202,70 @@ describe('AgentRegistry', () => {
     expect(second).not.toBe(first);
   });
 
+  it('update() preserves engine instance (PUT semantics — no session loss)', async () => {
+    const inst = await registry.register(
+      makeAgentConfig({ soul: { systemPrompt: 'old prompt' } }),
+    );
+    const originalEngine = inst.engine;
+    let disposed = false;
+    (originalEngine as unknown as { dispose: () => Promise<void> }).dispose =
+      async () => { disposed = true; };
+
+    const updated = await registry.update('test-agent', {
+      id: 'test-agent',
+      name: 'Renamed',
+      soul: { systemPrompt: 'new prompt' },
+      model: { provider: 'anthropic', name: 'claude-sonnet-4-6' },
+    });
+
+    expect(updated).toBe(inst); // same wrapper
+    expect(updated.engine).toBe(originalEngine); // same engine — point of update vs replace
+    expect(disposed).toBe(false); // engine NOT disposed
+    expect(updated.name).toBe('Renamed');
+    expect(updated.config.soul?.systemPrompt).toBe('new prompt');
+    expect(updated.updatedAt).toBeGreaterThanOrEqual(updated.createdAt);
+  });
+
+  it('update() calls engine.reconfigure when supported', async () => {
+    const inst = await registry.register(makeAgentConfig());
+    let reconfigured = false;
+    let receivedConfig: AgentConfig | null = null;
+    (inst.engine as { reconfigure?: (c: AgentConfig) => void }).reconfigure = (c) => {
+      reconfigured = true;
+      receivedConfig = c;
+    };
+    await registry.update('test-agent', {
+      id: 'test-agent',
+      soul: { systemPrompt: 'updated' },
+    });
+    expect(reconfigured).toBe(true);
+    expect(receivedConfig?.soul?.systemPrompt).toBe('updated');
+  });
+
+  it('update() throws when agent does not exist', async () => {
+    await expect(
+      registry.update('nope', makeAgentConfig({ id: 'nope' })),
+    ).rejects.toThrow(/not found/);
+  });
+
+  it('update() rejects body with mismatched id', async () => {
+    await registry.register(makeAgentConfig({ id: 'a' }));
+    await expect(
+      registry.update('a', makeAgentConfig({ id: 'b' })),
+    ).rejects.toThrow(/immutable/);
+  });
+
+  it('update() persists the new config to disk', async () => {
+    await registry.register(makeAgentConfig());
+    await registry.update('test-agent', {
+      id: 'test-agent',
+      soul: { systemPrompt: 'persisted' },
+    });
+    const filePath = join(TEST_DATA_DIR, 'agents', 'test-agent.json');
+    const saved = JSON.parse(readFileSync(filePath, 'utf-8'));
+    expect(saved.soul.systemPrompt).toBe('persisted');
+  });
+
   it('should disposeAll engines on shutdown (issue 0008)', async () => {
     await registry.register(makeAgentConfig({ id: 'agent-a' }));
     await registry.register(makeAgentConfig({ id: 'agent-b' }));

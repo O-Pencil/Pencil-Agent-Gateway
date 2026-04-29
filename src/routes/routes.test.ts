@@ -174,6 +174,36 @@ describe('Agents CRUD', () => {
     }, { Authorization: 'Bearer pk_full' });
     expect(res.status).toBe(400);
   });
+
+  it('should update an agent via PUT /v1/agents/:id', async () => {
+    const app = setupTestApp();
+    await makeRequest(app, 'POST', '/v1/agents', {
+      id: 'writer',
+      name: 'Writer',
+      model: { provider: 'anthropic', name: 'claude-sonnet-4-6' },
+      soul: { systemPrompt: 'old' },
+    }, { Authorization: 'Bearer pk_full' });
+
+    const res = await makeRequest(app, 'PUT', '/v1/agents/writer', {
+      name: 'Writer Pro',
+      soul: { systemPrompt: 'new' },
+      model: { provider: 'anthropic', name: 'claude-sonnet-4-6' },
+    }, { Authorization: 'Bearer pk_full' });
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.id).toBe('writer');
+    expect(json.modelId).toBe('pencil/writer');
+    expect(json.status).toBe('ready');
+  });
+
+  it('should 404 when PUT-ing to non-existent agent (use POST to create)', async () => {
+    const app = setupTestApp();
+    const res = await makeRequest(app, 'PUT', '/v1/agents/ghost', {
+      soul: { systemPrompt: 'x' },
+    }, { Authorization: 'Bearer pk_full' });
+    expect(res.status).toBe(404);
+  });
 });
 
 describe('Models endpoint', () => {

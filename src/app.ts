@@ -50,7 +50,7 @@ export function createApp(): Hono<AppEnv> {
 
     const corsHandler = cors({
       origin: origins,
-      allowMethods: ['GET', 'POST', 'DELETE', 'OPTIONS'],
+      allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
       allowHeaders: ['Authorization', 'Content-Type', 'X-Request-Id', 'X-Asgard-User', 'X-Asgard-Agent', 'X-Pencil-Session'],
       exposeHeaders: ['Content-Type'],
       maxAge: 86400,
@@ -117,6 +117,31 @@ export function createApp(): Hono<AppEnv> {
     const instance = await registry.register(body);
 
     logger.info('Agent created/updated', {
+      requestId: c.get('requestId'),
+      id: instance.id,
+      modelId: instance.modelId,
+    });
+
+    return c.json({
+      id: instance.id,
+      modelId: instance.modelId,
+      status: 'ready',
+    });
+  });
+
+  // Agents endpoint - update agent in place (preserves running sessions)
+  v1.put('/agents/:id', async (c) => {
+    const id = c.req.param('id');
+    const body = await c.req.json();
+
+    const registry = getRegistry();
+    if (!registry.has(id)) {
+      throw new NotFoundError(`Agent instance '${id}' not found`);
+    }
+
+    const instance = await registry.update(id, body);
+
+    logger.info('Agent updated', {
       requestId: c.get('requestId'),
       id: instance.id,
       modelId: instance.modelId,

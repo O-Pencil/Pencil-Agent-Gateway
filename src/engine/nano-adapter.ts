@@ -95,10 +95,13 @@ function extractErrorMessage(messages: unknown): string | null {
 export class NanoPencilEngineAdapter implements EngineAdapter {
   readonly id = 'nano-pencil';
 
-  private readonly mode: AdapterMode;
-  private readonly provider?: string;
-  private readonly modelName?: string;
-  private readonly apiKey?: string;
+  // Effectively-immutable per session creation, but `reconfigure()` can swap
+  // them in place so PUT /v1/agents/:id can update Soul/model without throwing
+  // away running conversations.
+  private mode: AdapterMode;
+  private provider?: string;
+  private modelName?: string;
+  private apiKey?: string;
   /**
    * Soul prompt — what makes a PencilAgent "this Agent" rather than a generic
    * model call. Composed from soul.systemPrompt + (optional) styleTags hint
@@ -106,7 +109,7 @@ export class NanoPencilEngineAdapter implements EngineAdapter {
    * Plumbed through DefaultResourceLoader.systemPrompt; nano-pencil's runtime
    * uses that as the top-level system message.
    */
-  private readonly soulPrompt?: string;
+  private soulPrompt?: string;
   private sessions = new Map<string, SessionEntry>();
 
   // Lazy: only allocated for byo-key mode.
@@ -126,6 +129,45 @@ export class NanoPencilEngineAdapter implements EngineAdapter {
       provider: this.provider,
       model: this.modelName,
       hasSoul: !!this.soulPrompt,
+    });
+  }
+
+  /**
+   * Update which Soul / provider / model future sessions will be built with.
+   * Existing sessions keep their captured config — that is the point of this
+   * method (avoid blowing away conversation history on PUT).
+   *
+   * If the BYO-key fingerprint changes (provider or apiKey), the BYO auth
+   * cache is invalidated so the next session creation re-applies it.
+   */
+  reconfigure(config: AgentConfig): void {
+    const prevMode = this.mode;
+    const prevProvider = this.provider;
+    const prevApiKey = this.apiKey;
+
+    this.provider = config.model?.provider;
+    this.modelName = config.model?.name;
+    this.apiKey = config.model?.apiKey;
+    this.mode = this.apiKey ? 'byo-key' : 'inherited';
+    this.soulPrompt = composeSoulPrompt(config);
+
+    const credentialChanged =
+      prevMode !== this.mode ||
+      prevProvider !== this.provider ||
+      prevApiKey !== this.apiKey;
+    if (credentialChanged) {
+      this.byoAuthStorage = undefined;
+      this.byoModelRegistry = undefined;
+      this.byoKeyApplied = false;
+    }
+
+    logger.debug('NanoPencilEngineAdapter reconfigured', {
+      mode: this.mode,
+      provider: this.provider,
+      model: this.modelName,
+      hasSoul: !!this.soulPrompt,
+      retainedSessions: this.sessions.size,
+      credentialChanged,
     });
   }
 
@@ -257,6 +299,17 @@ export class NanoPencilEngineAdapter implements EngineAdapter {
   // ── EngineAdapter interface ─────────────────────────────
 
   async run(request: EngineRunRequest, options?: EngineRunOptions): Promise<EngineRunResult> {
+    // nano-pencil's runtime decides temperature/max_tokens at the model level;
+    // there's no per-prompt knob. We accept these for OpenAI compatibility but
+    // signal the no-op so callers don't quietly assume they took effect.
+    if (request.options?.temperature !== undefined || request.options?.maxTokens !== undefined) {
+      logger.debug('temperature/max_tokens received but not propagated (nano-pencil has no per-prompt override)', {
+        agentId: request.agentId,
+        temperature: request.options?.temperature,
+        maxTokens: request.options?.maxTokens,
+      });
+    }
+
     logger.debug('NanoPencilEngineAdapter.run', {
       mode: this.mode,
       agentId: request.agentId,

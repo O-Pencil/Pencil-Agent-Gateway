@@ -63,4 +63,14 @@ export interface EngineAdapter {
    * Run the engine and generate text
    */
   run(request: EngineRunRequest, options?: EngineRunOptions): Promise<EngineRunResult>;
+
+  /**
+   * Optional: re-bind the engine to a new AgentConfig **without** disposing
+   * existing in-memory sessions. Used by `PUT /v1/agents/:id` so that updating
+   * Soul or model on an agent does not blow away a user's running conversation
+   * history. New sessions created after this call see the new config; sessions
+   * that already exist keep their prior Soul/model — that is by design (the
+   * captured resourceLoader is part of session identity).
+   */
+  reconfigure?(config: import('../config.js').AgentConfig): void;
 }
