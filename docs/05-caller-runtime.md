@@ -135,53 +135,64 @@ data: {"choices":[{"delta":{},"finish_reason":"stop"}]}
 data: [DONE]
 ```
 
-## 4. Gateway SDK (optional convenience layer)
+## 4. Gateway SDK (可选，尚未实现)
 
-The SDK is a thin wrapper over HTTP, useful for Node.js callers (such as nanoPencil CLI in remote mode) that want a typed surface.
+> **状态**: `@pencil-agent/gateway-sdk` 尚未实现。当前 callers 应直接使用 HTTP 或 OpenAI SDK。
 
-```ts
-import { PencilGatewayClient } from "@pencil-agent/gateway-sdk";
+未来计划提供一个轻量级的 Node.js SDK 包装层，方便 typed 调用。在此之前，推荐以下两种方式：
 
-const client = new PencilGatewayClient({
-  baseUrl: process.env.PENCIL_GATEWAY_URL,
-  apiKey: process.env.PENCIL_GATEWAY_API_KEY,
-});
+### 4.1 直接使用 OpenAI SDK
 
-const result = await client.chat({
-  model: "pencil/writing-assistant",
-  sessionId: "workspace-novel-2026",
-  messages: [{ role: "user", content: "Continue this plan." }],
-});
-```
-
-Streaming form:
+Gateway 完全兼容 OpenAI API，可直接使用官方 SDK：
 
 ```ts
-for await (const event of client.streamChat({
+import OpenAI from "openai";
+
+const client = new OpenAI({
+  baseURL: "http://localhost:8080/v1",
+  apiKey: "pk_dev_default",
+});
+
+// 非流式
+const response = await client.chat.completions.create({
   model: "pencil/writing-assistant",
-  sessionId: "workspace-novel-2026",
-  messages: [{ role: "user", content: "Draft the next section." }],
-})) {
-  if (event.type === "text_delta") process.stdout.write(event.text);
+  messages: [{ role: "user", content: "Hello" }],
+});
+
+// 流式
+const stream = await client.chat.completions.create({
+  model: "pencil/writing-assistant",
+  messages: [{ role: "user", content: "Hello" }],
+  stream: true,
+});
+
+for await (const chunk of stream) {
+  process.stdout.write(chunk.choices[0]?.delta?.content || "");
 }
 ```
 
-### 4.1 SDK Boundary Rules
+### 4.2 直接使用 HTTP/curl
 
-The SDK MUST:
+```bash
+curl -X POST http://localhost:8080/v1/chat/completions \
+  -H "Authorization: Bearer pk_dev_default" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "pencil/writing-assistant",
+    "messages": [{"role": "user", "content": "Hello"}]
+  }'
+```
 
-- call Gateway HTTP endpoints only
-- preserve OpenAI-compatible request semantics
-- expose a small caller-friendly API
-- support streaming through async iterables
-- support abort/cancel via `AbortSignal`
+### 4.3 未来 SDK 设计草案
 
-The SDK MUST NOT:
+当 `@pencil-agent/gateway-sdk` 实现时，它将：
 
-- import `nano-pencil`
-- access Gateway file storage
-- bypass API Key auth
-- introduce a private protocol incompatible with HTTP
+- 作为 HTTP 的薄包装层
+- 保持 OpenAI 兼容的请求语义
+- 支持通过 async iterables 进行流式传输
+- 支持通过 `AbortSignal` 取消
+- **不**导入 `nano-pencil`
+- **不**绕过 API Key 认证
 
 ## 5. Session Rules
 

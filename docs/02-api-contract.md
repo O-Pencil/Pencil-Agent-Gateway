@@ -225,30 +225,34 @@ Returns each Agent instance as an OpenAI model.
 
 ### 6.1 Agent Config
 
+实际配置定义见 `src/config.ts`。以下是与 API 交互相关的字段说明：
+
 ```ts
 type AgentConfig = {
-  id: string;
-  name?: string;
+  id: string;                    // Agent 唯一标识
+  name?: string;                 // 显示名称
   soul?: {
-    systemPrompt?: string;
-    styleTags?: string[];
+    systemPrompt?: string;       // 系统提示词
+    styleTags?: string[];        // 风格标签（预留）
   };
   memory?: {
-    mode: "short-term";
-    maxTurns: number;
+    mode: "short-term";          // 当前仅支持短期记忆
+    maxTurns: number;            // 最大对话轮数
   };
   model: {
-    provider: string;
-    name: string;
-    apiKey?: string;
-    baseUrl?: string;
-  };
-  engine?: {
-    type: "nano-pencil";
-    options?: Record<string, unknown>;
+    provider: string;            // 模型提供商，如 "anthropic"
+    name: string;                // 模型名称
+    apiKey?: string;             // 可选：自带 API 密钥（BYO-key 模式）
+    baseUrl?: string;            // 可选：自定义 API 端点
   };
 };
 ```
+
+**注意**：`engine` 字段在配置中不需要指定。Gateway 自动为所有 Agent 绑定 `NanoPencilEngineAdapter`。
+
+**运行模式**：
+- **Inherited 模式**（默认）：不提供 `model.apiKey`，使用用户本地 nano-pencil 配置（`~/.nanopencil/`）
+- **BYO-key 模式**：提供 `model.apiKey`，创建隔离的内存认证存储
 
 ### 6.2 GET /v1/agents
 

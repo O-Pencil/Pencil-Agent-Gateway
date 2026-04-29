@@ -1,6 +1,7 @@
 ---
 title: Pencil Agent Gateway 开发计划
 status: active
+updated: 2026-04-29
 scope: implementation-plan
 owner: pencil-agent-gateway maintainers
 created: 2026-04-25
@@ -226,24 +227,26 @@ v0.1 的成功标准：
 - OpenAI Node SDK stream 模式可消费。
 - client abort 后 engine run 被取消。
 
-### M7：nano-pencil EngineAdapter
+### M7：nano-pencil EngineAdapter ✅ 已完成
 
 任务：
 
-- 添加 `@pencil-agent/nano-pencil` 依赖
-- 封装 `NanoPencilEngineAdapter`
-- 只在 adapter 内部接触 nano-pencil SDK API
-- 将 AgentConfig 转换为 nano-pencil run config
-- 将 nano-pencil text events 转为 gateway delta
-- 将 turn complete 转为 finish
-- 将 error 转为 OpenAI error
-- adapter API 不稳定时加兼容层
+- ✅ 添加 `@pencil-agent/nano-pencil` 依赖 (`^1.13.6`)
+- ✅ 封装 `NanoPencilEngineAdapter`
+- ✅ 只在 adapter 内部接触 nano-pencil SDK API
+- ✅ 将 AgentConfig 转换为 nano-pencil run config
+- ✅ 将 nano-pencil text events 转为 gateway delta
+- ✅ 将 turn complete 转为 finish
+- ✅ 将 error 转为 OpenAI error
+- ✅ 支持 Inherited 和 BYO-key 两种运行模式
 
 验收：
 
-- 使用真实模型可完成一轮对话。
-- stream 和 non-stream 都可用。
-- 升级 nano-pencil 时只需要改 adapter 层。
+- ✅ 使用真实模型可完成一轮对话。
+- ✅ stream 和 non-stream 都可用。
+- ✅ 升级 nano-pencil 时只需要改 adapter 层。
+
+实现细节见 [07-m7-nano-pencil-integration.md](./07-m7-nano-pencil-integration.md)。
 
 ### M8：短期记忆
 
@@ -396,10 +399,12 @@ M0 -> M1 -> M2 -> M3 -> M4 -> M5 -> M6 -> M7 -> M8 -> M9 -> M10 -> M11 -> M12
 
 v0.1 完成必须同时满足：
 
-- OpenAI SDK 可调用 Gateway。
+- ✅ OpenAI SDK 可调用 Gateway。
 - Docker 镜像可自托管。
-- 多 Agent 实例可创建和调用。
-- 不同 API Key 可限制实例访问。
-- Gateway 能接入真实 nano-pencil SDK。
+- ✅ 多 Agent 实例可创建和调用。
+- ✅ 不同 API Key 可限制实例访问。
+- ✅ Gateway 能接入真实 nano-pencil SDK。
 - Asgard 可通过 HTTP proxy 调用。
 - editor 可通过 HTTP provider 流式显示。
+
+**当前状态**: M7 已完成，nano-pencil SDK 已真实接入。剩余工作：M9 Docker、M10/M11 集成文档完善、M12 测试加固。
