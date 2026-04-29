@@ -4,9 +4,9 @@
 
 ```text
 [WHO]  AI coding agents and human maintainers editing Pencil Agent Gateway
-[FROM] Product roadmap, Gateway docs, caller integration contracts (nanoPencil CLI, editor, Asgard, 3rd-party)
-[TO]   A stable Gateway that hosts PencilAgent instances and serves callers over HTTP/SDK
-[HERE] Repository-level development rules, DIP protocol, architecture boundaries, and implementation guardrails
+[FROM] Product roadmap, Gateway docs, OpenAI API spec, nano-pencil SDK
+[TO]   HTTP callers (OpenAI SDK, curl, Asgard Platform, nanopencil-editor, nanoPencil CLI remote mode)
+[HERE] Repository-level development rules, DIP protocol, architecture boundaries, and implementation guardrails — this is a self-contained HTTP gateway, not dependent on sibling projects in the Pencil ecosystem
 ```
 
 ## Mission
