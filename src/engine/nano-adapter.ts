@@ -125,6 +125,16 @@ export class NanoPencilEngineAdapter implements EngineAdapter {
    * uses that as the top-level system message.
    */
   private soulPrompt?: string;
+  /**
+   * Memory window from AgentConfig.memory.maxTurns. nano-pencil's session
+   * accumulates conversation history without a turn-count cap (only token
+   * compaction). To honor the configured value we enforce a *rolling* cap:
+   * once the captured AgentSession's message count exceeds the budget, the
+   * session entry is dropped and the next prompt creates a fresh one.
+   * That trades long-tail history for predictable, configurable memory —
+   * appropriate for the "short-term" memory mode this config exposes.
+   */
+  private memoryMaxTurns?: number;
   private sessions = new Map<string, SessionEntry>();
 
   // Lazy: only allocated for byo-key mode.
@@ -138,12 +148,14 @@ export class NanoPencilEngineAdapter implements EngineAdapter {
     this.apiKey = config.model?.apiKey ?? providerEnvApiKey(this.provider);
     this.mode = this.apiKey ? 'byo-key' : 'inherited';
     this.soulPrompt = composeSoulPrompt(config);
+    this.memoryMaxTurns = config.memory?.maxTurns;
 
     logger.debug('NanoPencilEngineAdapter created', {
       mode: this.mode,
       provider: this.provider,
       model: this.modelName,
       hasSoul: !!this.soulPrompt,
+      memoryMaxTurns: this.memoryMaxTurns,
     });
   }
 
@@ -165,6 +177,7 @@ export class NanoPencilEngineAdapter implements EngineAdapter {
     this.apiKey = config.model?.apiKey ?? providerEnvApiKey(this.provider);
     this.mode = this.apiKey ? 'byo-key' : 'inherited';
     this.soulPrompt = composeSoulPrompt(config);
+    this.memoryMaxTurns = config.memory?.maxTurns;
 
     const credentialChanged =
       prevMode !== this.mode ||
@@ -287,6 +300,38 @@ export class NanoPencilEngineAdapter implements EngineAdapter {
     return opts;
   }
 
+  /**
+   * Compute the rolling memory budget. One turn ~ user + assistant message,
+   * with a small buffer for system prompt + interleaved tool messages.
+   */
+  private memoryBudget(): number | null {
+    if (!this.memoryMaxTurns || this.memoryMaxTurns <= 0) return null;
+    return this.memoryMaxTurns * 2 + 4;
+  }
+
+  /**
+   * Drop the session entry for `sessionId` if its captured AgentSession has
+   * grown past the configured memory budget. Called at the start of each run
+   * so the next message starts a fresh conversation when the user has
+   * "forgotten" past the maxTurns horizon.
+   */
+  private rollSessionIfOverBudget(sessionId: string): void {
+    const budget = this.memoryBudget();
+    if (budget === null) return;
+    const entry = this.sessions.get(sessionId);
+    if (!entry) return;
+    const messageCount = entry.session.messages.length;
+    if (messageCount > budget) {
+      logger.info('Memory window exceeded — rolling session', {
+        sessionId,
+        maxTurns: this.memoryMaxTurns,
+        messageCount,
+        budget,
+      });
+      this.sessions.delete(sessionId);
+    }
+  }
+
   private async getOrCreateSession(sessionId: string): Promise<SessionEntry> {
     const existing = this.sessions.get(sessionId);
     if (existing) return existing;
@@ -324,6 +369,10 @@ export class NanoPencilEngineAdapter implements EngineAdapter {
         maxTokens: request.options?.maxTokens,
       });
     }
+
+    // Apply memory.maxTurns: drop session if its captured history is past
+    // the budget — getOrCreateSession below will then build a fresh one.
+    this.rollSessionIfOverBudget(request.sessionId);
 
     logger.debug('NanoPencilEngineAdapter.run', {
       mode: this.mode,

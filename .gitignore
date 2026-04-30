@@ -43,3 +43,4 @@ deploy/secrets/
 #extensions
 .memory-experiments/
 .claude/
+.mcp.json
