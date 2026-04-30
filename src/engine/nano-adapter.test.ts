@@ -12,6 +12,11 @@
 
 import { describe, it, expect } from 'vitest';
 import { NanoPencilEngineAdapter, createNanoPencilAdapter, composeSoulPrompt } from './nano-adapter.js';
+import {
+  CODING_PLAN_PRESETS,
+  getCodingPlanPreset,
+  listCodingPlanProviders,
+} from './coding-plan-presets.js';
 import type { AgentConfig } from '../config.js';
 
 function makeConfig(overrides?: Partial<AgentConfig>): AgentConfig {
@@ -90,6 +95,79 @@ describe('NanoPencilEngineAdapter', () => {
       }),
     );
     expect(adapter).toBeDefined();
+  });
+
+  it('accepts a Coding Plan provider with only apiKey (preset fills the rest)', () => {
+    const adapter = createNanoPencilAdapter(
+      makeConfig({
+        model: {
+          provider: 'dashscope-coding',
+          apiKey: 'sk-dashscope-test',
+        },
+      }),
+    );
+    expect(adapter).toBeDefined();
+  });
+
+  it('accepts a fully-custom provider (user supplies api + models[])', () => {
+    const adapter = createNanoPencilAdapter(
+      makeConfig({
+        model: {
+          provider: 'my-corp-llm',
+          name: 'my-model-7b',
+          apiKey: 'sk-internal-test',
+          baseUrl: 'https://my-corp-llm.internal/v1',
+          api: 'openai-completions',
+          models: [
+            { id: 'my-model-7b', name: 'My Model 7B', contextWindow: 32768, maxTokens: 4096 },
+          ],
+        },
+      }),
+    );
+    expect(adapter).toBeDefined();
+  });
+});
+
+describe('Coding Plan presets', () => {
+  it('exposes all five Coding Plan providers + anthropic-custom', () => {
+    const providers = listCodingPlanProviders().sort();
+    expect(providers).toEqual(
+      [
+        'anthropic-custom',
+        'ark-coding',
+        'dashscope-coding',
+        'minimax-coding',
+        'qianfan-coding',
+        'zhipu-coding',
+      ].sort(),
+    );
+  });
+
+  it('returns undefined for unknown providers', () => {
+    expect(getCodingPlanPreset('not-a-real-provider')).toBeUndefined();
+    expect(getCodingPlanPreset(undefined)).toBeUndefined();
+  });
+
+  it('dashscope-coding preset matches the upstream default', () => {
+    const preset = getCodingPlanPreset('dashscope-coding');
+    expect(preset?.baseUrl).toBe('https://coding.dashscope.aliyuncs.com/v1');
+    expect(preset?.api).toBe('openai-completions');
+    expect(preset?.models.length).toBeGreaterThan(0);
+    // sanity-check at least one well-known model id is present
+    expect(preset?.models.some(m => m.id === 'qwen3-coder-plus')).toBe(true);
+  });
+
+  it('every preset has non-empty baseUrl/api/models', () => {
+    for (const [provider, preset] of Object.entries(CODING_PLAN_PRESETS)) {
+      expect(preset.baseUrl, `${provider} baseUrl`).toBeTruthy();
+      expect(preset.api, `${provider} api`).toBeTruthy();
+      expect(preset.models.length, `${provider} models`).toBeGreaterThan(0);
+      for (const m of preset.models) {
+        expect(m.id, `${provider} model id`).toBeTruthy();
+        expect(m.contextWindow, `${provider}/${m.id} contextWindow`).toBeGreaterThan(0);
+        expect(m.maxTokens, `${provider}/${m.id} maxTokens`).toBeGreaterThan(0);
+      }
+    }
   });
 });
 

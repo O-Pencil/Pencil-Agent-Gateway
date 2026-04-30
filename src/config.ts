@@ -25,18 +25,50 @@ export interface ApiKeyConfig {
 }
 
 /**
+ * Single model entry inside ModelConfig.models — used to register custom
+ * (non-SDK-built-in) providers like Coding Plan endpoints. Only `id` is
+ * required; other fields fall back to nano-pencil ModelRegistry defaults
+ * (contextWindow=128000, maxTokens=16384, input=['text']).
+ */
+export interface ModelDef {
+  id: string;
+  name?: string;
+  input?: ('text' | 'image')[];
+  contextWindow?: number;
+  maxTokens?: number;
+}
+
+/**
  * Model configuration. All fields optional:
  *   - provider/name: when omitted, the engine adapter falls back to whatever
  *     model the local nano-pencil install (`~/.nanopencil/`) resolves as default.
  *   - apiKey: when present, the adapter creates an isolated in-memory auth
  *     store (BYO key); when absent, it inherits the user's local nano-pencil
  *     auth so provider/model switching happens in the SDK, not the Gateway.
+ *   - api/models: when set, the adapter dynamically registers `provider` on
+ *     its in-memory ModelRegistry via ModelRegistry.registerProvider(). This
+ *     is what lets Coding Plan providers (dashscope-coding, qianfan-coding,
+ *     ark-coding, minimax-coding, zhipu-coding) work — they are not in the
+ *     SDK's built-in MODELS catalog. If `provider` matches a Gateway preset
+ *     (see engine/coding-plan-presets.ts), the preset fills any missing
+ *     baseUrl/api/models so callers only need to supply the apiKey.
  */
 export interface ModelConfig {
   provider?: string;
   name?: string;
   apiKey?: string;
   baseUrl?: string;
+  /**
+   * Wire-protocol identifier registered in the SDK's api-registry, e.g.
+   * 'openai-completions' or 'anthropic-messages'. Combined with `models`
+   * to register a custom provider at runtime.
+   */
+  api?: string;
+  /**
+   * Model catalog for the provider. When provided, replaces any built-in
+   * models for `provider` on the adapter's in-memory ModelRegistry.
+   */
+  models?: ModelDef[];
 }
 
 /**

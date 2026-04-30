@@ -41,9 +41,10 @@ import {
 import type { AgentSession, AgentSessionEvent } from '@pencil-agent/nano-pencil';
 
 import type { EngineAdapter, EngineRunRequest, EngineRunOptions, EngineRunResult } from './adapter.js';
-import type { AgentConfig } from '../config.js';
+import type { AgentConfig, ModelDef } from '../config.js';
 import { logger } from '../util/logger.js';
 import { EngineError } from '../util/errors.js';
+import { getCodingPlanPreset, type CodingPlanModelDef } from './coding-plan-presets.js';
 
 interface SessionEntry {
   session: AgentSession;
@@ -107,6 +108,40 @@ function extractErrorMessage(messages: unknown): string | null {
   return null;
 }
 
+/**
+ * Resolve provider config (baseUrl + api + models[]) by merging the agent's
+ * ModelConfig with any matching Gateway preset. Caller-supplied fields win.
+ *
+ * Returns null when there's not enough data to register the provider —
+ * e.g. user only supplied a provider name that's not in our presets and
+ * didn't fill in baseUrl/api/models. In that case we fall through to the
+ * SDK's built-in MODELS lookup (which works for `anthropic`, `openai`, etc.).
+ */
+function resolveCustomProviderConfig(
+  provider: string,
+  modelConfig: { baseUrl?: string; api?: string; models?: ModelDef[] } | undefined,
+): { baseUrl: string; api: string; models: CodingPlanModelDef[] } | null {
+  const preset = getCodingPlanPreset(provider);
+  const baseUrl = modelConfig?.baseUrl ?? preset?.baseUrl;
+  const api = modelConfig?.api ?? preset?.api;
+  // User-supplied models[] fully replaces preset models[] when both are set.
+  const userModels = modelConfig?.models;
+  let models: CodingPlanModelDef[] | undefined;
+  if (userModels && userModels.length > 0) {
+    models = userModels.map(m => ({
+      id: m.id,
+      name: m.name ?? m.id,
+      input: m.input ?? ['text'],
+      contextWindow: m.contextWindow ?? 128000,
+      maxTokens: m.maxTokens ?? 16384,
+    }));
+  } else {
+    models = preset?.models;
+  }
+  if (!baseUrl || !api || !models || models.length === 0) return null;
+  return { baseUrl, api, models };
+}
+
 export class NanoPencilEngineAdapter implements EngineAdapter {
   readonly id = 'nano-pencil';
 
@@ -117,6 +152,12 @@ export class NanoPencilEngineAdapter implements EngineAdapter {
   private provider?: string;
   private modelName?: string;
   private apiKey?: string;
+  // Custom-provider extension fields (see ModelConfig in src/config.ts). Used
+  // alongside the Coding Plan preset table to register OpenAI/Anthropic-compat
+  // endpoints that aren't in the SDK's built-in MODELS catalog.
+  private modelBaseUrl?: string;
+  private modelApi?: string;
+  private modelDefs?: ModelDef[];
   /**
    * Soul prompt — what makes a PencilAgent "this Agent" rather than a generic
    * model call. Composed from soul.systemPrompt + (optional) styleTags hint
@@ -146,6 +187,9 @@ export class NanoPencilEngineAdapter implements EngineAdapter {
     this.provider = config.model?.provider;
     this.modelName = config.model?.name;
     this.apiKey = config.model?.apiKey ?? providerEnvApiKey(this.provider);
+    this.modelBaseUrl = config.model?.baseUrl;
+    this.modelApi = config.model?.api;
+    this.modelDefs = config.model?.models;
     this.mode = this.apiKey ? 'byo-key' : 'inherited';
     this.soulPrompt = composeSoulPrompt(config);
     this.memoryMaxTurns = config.memory?.maxTurns;
@@ -171,18 +215,32 @@ export class NanoPencilEngineAdapter implements EngineAdapter {
     const prevMode = this.mode;
     const prevProvider = this.provider;
     const prevApiKey = this.apiKey;
+    const prevBaseUrl = this.modelBaseUrl;
+    const prevApi = this.modelApi;
+    const prevModelDefs = this.modelDefs;
 
     this.provider = config.model?.provider;
     this.modelName = config.model?.name;
     this.apiKey = config.model?.apiKey ?? providerEnvApiKey(this.provider);
+    this.modelBaseUrl = config.model?.baseUrl;
+    this.modelApi = config.model?.api;
+    this.modelDefs = config.model?.models;
     this.mode = this.apiKey ? 'byo-key' : 'inherited';
     this.soulPrompt = composeSoulPrompt(config);
     this.memoryMaxTurns = config.memory?.maxTurns;
 
+    // Custom-provider config changes invalidate the BYO registry too — the
+    // registered baseUrl / model list are baked into the in-memory registry,
+    // so we must rebuild it next session.
+    const customConfigChanged =
+      prevBaseUrl !== this.modelBaseUrl ||
+      prevApi !== this.modelApi ||
+      prevModelDefs !== this.modelDefs;
     const credentialChanged =
       prevMode !== this.mode ||
       prevProvider !== this.provider ||
-      prevApiKey !== this.apiKey;
+      prevApiKey !== this.apiKey ||
+      customConfigChanged;
     if (credentialChanged) {
       this.byoAuthStorage = undefined;
       this.byoModelRegistry = undefined;
@@ -251,11 +309,62 @@ export class NanoPencilEngineAdapter implements EngineAdapter {
         this.byoKeyApplied = true;
       }
 
-      const model = this.byoModelRegistry!.find(this.provider!, this.modelName!);
+      // Two paths to a usable Model<Api>:
+      //   1. provider is in the SDK's built-in MODELS catalog (anthropic,
+      //      openai, google, ...) — `find()` succeeds out of the box.
+      //   2. provider is a Coding Plan / custom endpoint not in MODELS —
+      //      we register it on the in-memory registry from a Gateway preset
+      //      and/or user-supplied baseUrl/api/models[], then `find()` again.
+      let resolvedModelName = this.modelName;
+      let model = resolvedModelName
+        ? this.byoModelRegistry!.find(this.provider!, resolvedModelName)
+        : undefined;
+
+      if (!model) {
+        const customCfg = resolveCustomProviderConfig(this.provider!, {
+          baseUrl: this.modelBaseUrl,
+          api: this.modelApi,
+          models: this.modelDefs,
+        });
+
+        if (customCfg) {
+          // registerProvider() does a full replacement of any existing models
+          // for `provider`, so we only call it for non-built-in providers
+          // (the find() above already handled built-in hits).
+          this.byoModelRegistry!.registerProvider(this.provider!, {
+            baseUrl: customCfg.baseUrl,
+            api: customCfg.api as never, // Api is `KnownApi | (string & {})` — accept any string
+            apiKey: this.apiKey!,
+            models: customCfg.models.map(m => ({
+              id: m.id,
+              name: m.name,
+              reasoning: false,
+              input: m.input,
+              cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+              contextWindow: m.contextWindow,
+              maxTokens: m.maxTokens,
+            })),
+          });
+
+          // If the caller didn't pin a model id, default to the first one in
+          // the preset/custom list. This matches CLI behaviour where the user
+          // picks from a TUI list, and lets Asgard's "create with provider
+          // only" flow work without a follow-up.
+          if (!resolvedModelName) {
+            resolvedModelName = customCfg.models[0].id;
+          }
+
+          model = this.byoModelRegistry!.find(this.provider!, resolvedModelName);
+        }
+      }
+
       if (!model) {
         throw new EngineError(
-          `Model '${this.modelName}' not found for provider '${this.provider}' in the SDK's static registry. ` +
-            'Pick a name from the nano-pencil model list.',
+          `Model '${this.modelName ?? '(unspecified)'}' not found for provider '${this.provider}'. ` +
+            'Either pick a model id known to the SDK\'s built-in catalog, supply ' +
+            'model.api + model.models[] in the agent config, or use one of the ' +
+            'Gateway Coding Plan presets (dashscope-coding, qianfan-coding, ' +
+            'ark-coding, minimax-coding, zhipu-coding, anthropic-custom).',
         );
       }
 
@@ -265,7 +374,7 @@ export class NanoPencilEngineAdapter implements EngineAdapter {
       logger.debug('AgentSession options (byo-key)', {
         sessionId,
         provider: this.provider,
-        model: this.modelName,
+        model: resolvedModelName,
       });
       return opts;
     }
