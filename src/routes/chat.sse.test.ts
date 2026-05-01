@@ -8,7 +8,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { serializeChunk, createDeltaChunk, SSE_DONE } from './chat.js';
+import { serializeChunk, createDeltaChunk, serializeError, SSE_DONE } from './chat.js';
 
 describe('serializeChunk', () => {
   it('should serialize a chunk as data: line', () => {
@@ -39,6 +39,29 @@ describe('serializeChunk', () => {
 describe('SSE_DONE', () => {
   it('should be the correct sentinel value', () => {
     expect(SSE_DONE).toBe('data: [DONE]\n\n');
+  });
+});
+
+describe('serializeError', () => {
+  it('forwards the upstream message verbatim inside an OpenAI-shaped envelope', () => {
+    const out = serializeError('429 week allocated quota exceeded.');
+    expect(out.startsWith('data: ')).toBe(true);
+    expect(out.endsWith('\n\n')).toBe(true);
+    const body = JSON.parse(out.slice(6, -2));
+    expect(body).toEqual({
+      error: {
+        type: 'engine_error',
+        code: 'engine_error',
+        message: '429 week allocated quota exceeded.',
+      },
+    });
+  });
+
+  it('preserves multi-line / structured error messages', () => {
+    const msg = 'Upstream returned:\n{"code":"throttling","message":"quota exceeded"}';
+    const out = serializeError(msg);
+    const body = JSON.parse(out.slice(6, -2));
+    expect(body.error.message).toBe(msg);
   });
 });
 

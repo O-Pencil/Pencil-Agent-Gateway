@@ -532,19 +532,35 @@ export class NanoPencilEngineAdapter implements EngineAdapter {
     try {
       await session.prompt(message);
     } catch (err) {
-      throw new EngineError(
-        `Engine run failed: ${err instanceof Error ? err.message : String(err)}`,
-        err,
-      );
+      // Pass upstream error message verbatim — the engine's own diagnostic
+      // (e.g. "429 week allocated quota exceeded") is already specific enough
+      // for the client. EngineError.code='engine_error' identifies the layer.
+      const msg = err instanceof Error ? err.message : String(err);
+      logger.warn('Engine prompt threw', {
+        agentId: request.agentId,
+        sessionId: request.sessionId,
+        error: msg,
+      });
+      throw new EngineError(msg, err);
     } finally {
       unsub();
     }
 
     if (agentEndError) {
-      throw new EngineError(`Engine reported error: ${agentEndError}`);
+      logger.warn('Engine reported error in agent_end', {
+        agentId: request.agentId,
+        sessionId: request.sessionId,
+        error: agentEndError,
+      });
+      throw new EngineError(agentEndError);
     }
     if (sdkError && finalText === null) {
-      throw new EngineError(`Engine SDK error: ${sdkError}`);
+      logger.warn('Engine SDK error without final text', {
+        agentId: request.agentId,
+        sessionId: request.sessionId,
+        error: sdkError,
+      });
+      throw new EngineError(sdkError);
     }
     if (finalText === null) {
       throw new EngineError(
@@ -601,7 +617,12 @@ export class NanoPencilEngineAdapter implements EngineAdapter {
       if (event.type === 'agent_end') {
         const err = extractErrorMessage(event.messages);
         if (err) {
-          emitError(`Engine reported error: ${err}`);
+          logger.warn('Engine reported error in agent_end (streaming)', {
+            agentId: request.agentId,
+            sessionId: request.sessionId,
+            error: err,
+          });
+          emitError(err);
           emitDone('error');
           return;
         }
@@ -618,7 +639,12 @@ export class NanoPencilEngineAdapter implements EngineAdapter {
 
       if (event.type === 'sdk:error') {
         const msg = event.error instanceof Error ? event.error.message : String(event.error);
-        emitError(`Engine SDK error: ${msg}`);
+        logger.warn('SDK-level error event (streaming)', {
+          agentId: request.agentId,
+          sessionId: request.sessionId,
+          error: msg,
+        });
+        emitError(msg);
       }
     };
 
@@ -641,12 +667,12 @@ export class NanoPencilEngineAdapter implements EngineAdapter {
         emitDone('cancelled');
       } else {
         const msg = err instanceof Error ? err.message : String(err);
-        logger.error('Streaming error', {
+        logger.error('Streaming run threw', {
           agentId: request.agentId,
           sessionId: request.sessionId,
           error: msg,
         });
-        emitError(`Engine run failed: ${msg}`);
+        emitError(msg);
         emitDone('error');
       }
     } finally {

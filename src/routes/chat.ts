@@ -248,9 +248,20 @@ async function handleStreaming(
                 controller.enqueue(serializeChunk(finalChunk));
                 controller.enqueue(SSE_DONE);
               } else if (event.type === 'error') {
-                // Send error in stream
-                const errorChunk = createDeltaChunk(chatId, created, request.model, {}, 'stop');
-                controller.enqueue(serializeChunk(errorChunk));
+                // Pass upstream error through verbatim. Use OpenAI's top-level
+                // error envelope (`data: {"error":{...}}`) — most compatible
+                // clients (openai-node, openai-python, vercel/ai) parse it,
+                // and those that don't still see the full message in the SSE
+                // log. Deliberately do NOT send a `finish_reason: 'stop'`
+                // delta first — that would lie about a normal completion and
+                // hide the failure (which is what was happening before).
+                const errMsg = event.error || 'Unknown engine error';
+                logger.error('Engine error during streaming', {
+                  requestId: c.get('requestId'),
+                  chatId,
+                  error: errMsg,
+                });
+                controller.enqueue(serializeError(errMsg));
                 controller.enqueue(SSE_DONE);
               }
             },
@@ -258,14 +269,13 @@ async function handleStreaming(
           },
         );
       } catch (err) {
-        logger.error('Streaming error', {
+        const errMsg = err instanceof Error ? err.message : String(err);
+        logger.error('Streaming run threw uncaught', {
           requestId: c.get('requestId'),
           chatId,
-          error: err instanceof Error ? err.message : String(err),
+          error: errMsg,
         });
-        // Send error chunk
-        const errorChunk = createDeltaChunk(chatId, created, request.model, {}, 'stop');
-        controller.enqueue(serializeChunk(errorChunk));
+        controller.enqueue(serializeError(errMsg));
         controller.enqueue(SSE_DONE);
       } finally {
         controller.close();
@@ -288,6 +298,26 @@ async function handleStreaming(
  */
 export function serializeChunk(chunk: ChatCompletionChunk): string {
   return `data: ${JSON.stringify(chunk)}\n\n`;
+}
+
+/**
+ * SSE error envelope serializer.
+ *
+ * Format matches OpenAI's mid-stream error convention: a top-level
+ * `{ error: { type, code, message } }` object delivered as one `data:` frame,
+ * followed by `data: [DONE]\n\n`. Most OpenAI-compatible clients parse this;
+ * those that don't will still see the full message in the SSE log instead of
+ * a misleading `finish_reason: 'stop'`.
+ */
+export function serializeError(message: string): string {
+  const payload = {
+    error: {
+      type: 'engine_error',
+      code: 'engine_error',
+      message,
+    },
+  };
+  return `data: ${JSON.stringify(payload)}\n\n`;
 }
 
 /**
