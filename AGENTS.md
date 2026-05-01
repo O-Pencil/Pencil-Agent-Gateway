@@ -58,13 +58,13 @@ Example:
 | Caller access | HTTP client contract, optional Gateway SDK | caller-side application logic |
 | Platform integration | Asgard HTTP contract and headers | Asgard users, billing, marketplace UI |
 | Editor integration | editor HTTP provider contract | editor UI implementation |
-| Channels | only future HTTP-facing contract | Telegram/Slack/Discord/WeChat adapters |
+| Channels | stage-one WeChat/Feishu HTTP wrapper that calls Gateway as a client | channel logic inside EngineAdapter, AgentRegistry, or nano-pencil |
 
 ## Mandatory Rules
 
 1. Do not import `nano-pencil` outside the engine adapter layer.
 2. Do not add user registration, billing, marketplace, or console UI.
-3. Do not add Telegram/Slack/Discord/WeChat adapters to this repository.
+3. Keep channel adapters isolated under `src/channels/`; they must call Gateway over HTTP and must not import `AgentRegistry`, `EngineAdapter`, or `@pencil-agent/nano-pencil`.
 4. Do not implement workflow/DAG orchestration in v0.1.
 5. Keep `/v1/chat/completions` OpenAI-compatible.
 6. Keep Pencil-specific extensions documented and namespaced.
@@ -125,7 +125,7 @@ The SDK is a convenience wrapper over HTTP, not a separate private protocol.
 
 Defer these unless explicitly requested:
 
-- channel gateway implementation
+- additional channel gateway implementation beyond the stage-one WeChat/Feishu text wrapper
 - bidirectional local tool callback
 - persistent vector memory
 - multi-tenant user system

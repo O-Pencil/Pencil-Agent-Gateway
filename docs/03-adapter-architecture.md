@@ -213,7 +213,7 @@ Rules:
 
 Telegram/Slack/Discord/WeChat adapters should not implement `EngineAdapter`.
 
-They belong to future `pencil-channel-gateway`:
+The stage-one WeChat/Feishu wrapper in `src/channels/` is allowed only as a bounded HTTP caller. Broader channel support belongs to future `pencil-channel-gateway`:
 
 ```text
 ChannelAdapter
@@ -262,5 +262,5 @@ Before adding a dependency or feature, ask:
 
 1. Is this Agent engine logic? If yes, it probably belongs in `nano-pencil`.
 2. Is this platform/user/billing logic? If yes, it belongs in Asgard.
-3. Is this chat app protocol logic? If yes, it belongs in Channel Gateway.
+3. Is this chat app protocol logic? If yes, it belongs in `src/channels/` only for the bounded WeChat/Feishu text wrapper; otherwise it belongs in Channel Gateway.
 4. Is this HTTP serving/auth/routing/config logic? If yes, it belongs here.

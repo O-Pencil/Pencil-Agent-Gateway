@@ -68,6 +68,7 @@ Every major document and architecture-facing module should preserve the DIP meta
 - No WebSocket API in v0.1.
 - No client-side tool callback protocol in v0.1.
 - No full workflow/DAG runtime in the Gateway.
+- Channel support is limited to the stage-one WeChat/Feishu text wrapper. Broader channel adapters should move to a separate `pencil-channel-gateway`.
 
 ## MVP Scope
 
@@ -153,7 +154,7 @@ pencil-agent-gateway/
 └── tests/
 ```
 
-The code directories will be created during implementation milestones. The docs in this repository are the source of truth for the MVP build.
+The optional `src/channels/` wrapper is deliberately isolated from the Agent serving path. It handles WeChat/Feishu webhooks as an HTTP caller of the Gateway and is designed to move into `pencil-channel-gateway` later.
 
 ## Development Phases
 
@@ -286,4 +287,4 @@ docker run -d -p 8080:8080 \
 ## Naming Note
 
 The precise technical role is **Agent Gateway**: a serving gateway for Agent engines.
-If this project later also owns Telegram/Slack/Discord/WeChat adapters, those should be split into a separate **Channel Gateway** to avoid mixing transport-channel concerns with Agent serving concerns.
+The stage-one WeChat/Feishu channel wrapper is a bounded bootstrap path. If this grows into broader Telegram/Slack/Discord/WeChat support, it should be split into a separate **Channel Gateway** to avoid mixing transport-channel concerns with Agent serving concerns.

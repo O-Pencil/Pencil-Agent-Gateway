@@ -110,7 +110,7 @@ MVP 必须覆盖：
 | Marketplace | 平台 UI 职责 | Asgard |
 | 容器编排 | Gateway 是被编排对象 | Asgard |
 | 多 Agent workflow/DAG | 会把 serving 层变成平台层 | 后续 Asgard 或专门 orchestrator |
-| Telegram/Slack/Discord/微信 adapter | 渠道复杂度高，应独立 | `pencil-channel-gateway` |
+| 大规模 Telegram/Slack/Discord/微信 adapter | 渠道复杂度高，应独立；当前仓库只允许阶段性 WeChat/Feishu 文本 wrapper | `pencil-channel-gateway` |
 | Desktop 本地文件工具执行 | 客户端本地能力 | `nanopencil-editor` |
 | Caller 业务逻辑 | Gateway 只提供托管 PencilAgent + HTTP/SDK 调用面 | 各 caller 自己 |
 
@@ -145,7 +145,9 @@ Asgard -> HTTP proxy -> Pencil Agent Gateway container
 
 ## 8. Channel Gateway 的未来位置
 
-Telegram、Slack、Discord、微信、飞书等渠道适配，不应该塞进 Agent Gateway MVP。
+Telegram、Slack、Discord、微信、飞书等渠道适配，不应该长期塞进 Agent Gateway MVP。
+
+当前仓库允许一个阶段性例外：`src/channels/` 中的 WeChat/Feishu 文本 wrapper。它只能作为 Gateway HTTP caller 工作，不能直接访问 `AgentRegistry`、`EngineAdapter` 或 `nano-pencil`。
 
 推荐未来拆一个项目：
 
@@ -168,4 +170,4 @@ External Chat App
 
 `Pencil Agent Gateway` 这个定义是准确的，但要明确它是 **Agent serving gateway**，不是所有入口的总网关。
 
-当前仓库应先实现 HTTP serving 主链路。Channel 能力不要现在合并进来，只在接口上保留将来可对接的 OpenAI-compatible HTTP 面。
+当前仓库应优先保持 HTTP serving 主链路。阶段性 Channel 能力必须保持可迁移边界，并通过 OpenAI-compatible HTTP 面调用 Gateway。

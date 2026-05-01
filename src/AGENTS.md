@@ -24,6 +24,14 @@ src/
 │   ├── chat.ts            # OpenAI-compatible chat endpoints
 │   ├── chat.sse.test.ts   # SSE streaming tests
 │   └── routes.test.ts     # Route integration tests
+├── channels/
+│   ├── app.ts             # Optional channel webhook Hono app
+│   ├── types.ts           # Channel adapter/message/route contracts
+│   ├── router.ts          # Channel allowlist, routing, session ids
+│   ├── gateway-client.ts  # HTTP caller for /v1/chat/completions
+│   ├── dingtalk/          # DingTalk relay/MCP-compatible adapter
+│   ├── feishu/            # Feishu webhook and reply adapter
+│   └── wechat/            # WeChat webhook and XML reply adapter
 ├── agent/
 │   ├── registry.ts        # Agent instance management
 │   └── registry.test.ts   # Registry tests
@@ -56,6 +64,7 @@ src/
 |------|----------------|-------------|
 | `server.ts` | Server bootstrap, graceful shutdown, initialization orchestration | `main()` |
 | `app.ts` | Hono app factory, middleware chain, route mounting | `createApp()`, `AppEnv` |
+| `channel-server.ts` | Optional channel webhook server bootstrap | `main()` |
 
 ### Configuration
 
@@ -68,6 +77,18 @@ src/
 | File | Responsibility | Key Exports |
 |------|----------------|-------------|
 | `routes/chat.ts` | OpenAI-compatible `/v1/chat/completions` endpoint, streaming/non-streaming | `handleChatCompletion()` |
+
+### Channels (Optional Wrapper)
+
+| File | Responsibility | Key Exports |
+|------|----------------|-------------|
+| `channels/app.ts` | DingTalk/WeChat/Feishu webhook route mounting | `createChannelApp()` |
+| `channels/types.ts` | Normalized channel contracts | `ChannelAdapter`, `NormalizedMessage`, `ChannelRoute`, `OutboundMessage` |
+| `channels/router.ts` | Allowlist, route matching, safe `session_id` generation | `resolveChannelMessage()` |
+| `channels/gateway-client.ts` | Thin HTTP caller into Gateway chat API | `runChannelMessage()` |
+| `channels/dingtalk/adapter.ts` | DingTalk Stream/MCP relay parsing and session webhook replies | `DingTalkAdapter`, `normalizeDingTalkPayload()` |
+| `channels/feishu/adapter.ts` | Feishu challenge/text parsing and reply API | `FeishuAdapter`, `normalizeFeishuPayload()` |
+| `channels/wechat/adapter.ts` | WeChat signature/XML parsing and text replies | `verifyWeChatSignature()`, `renderWeChatTextReply()` |
 
 ### Agent Management
 
@@ -119,6 +140,10 @@ server.ts
   -> agent/registry.ts (initRegistry)
   -> store/session.ts (initSessionStore)
 
+channel-server.ts
+  -> config.ts (loadConfig)
+  -> channels/app.ts (createChannelApp)
+
 app.ts
   -> config.ts (getConfig)
   -> auth/middleware.ts (authMiddleware)
@@ -133,6 +158,13 @@ routes/chat.ts
   -> protocol/types.ts (ChatCompletionRequest)
   -> util/errors.ts (NotFoundError)
   -> util/logger.ts (logger)
+
+channels/app.ts
+  -> channels/router.ts (resolveChannelMessage)
+  -> channels/gateway-client.ts (runChannelMessage)
+  -> channels/dingtalk/adapter.ts
+  -> channels/feishu/adapter.ts
+  -> channels/wechat/adapter.ts
 
 agent/registry.ts
   -> engine/adapter.ts (EngineAdapter)

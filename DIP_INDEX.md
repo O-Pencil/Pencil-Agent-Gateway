@@ -52,9 +52,17 @@ All source files (`.ts`, `.test.ts`) contain P3 headers:
 
 **Files with P3 headers:**
 - `src/server.ts`
+- `src/channel-server.ts`
 - `src/app.ts`
 - `src/config.ts`
 - `src/routes/chat.ts`
+- `src/channels/app.ts`
+- `src/channels/types.ts`
+- `src/channels/router.ts`
+- `src/channels/gateway-client.ts`
+- `src/channels/dingtalk/adapter.ts`
+- `src/channels/feishu/adapter.ts`
+- `src/channels/wechat/adapter.ts`
 - `src/agent/registry.ts`
 - `src/auth/middleware.ts`
 - `src/engine/adapter.ts`

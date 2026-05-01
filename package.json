@@ -6,8 +6,10 @@
   "main": "dist/server.js",
   "scripts": {
     "dev": "tsx watch src/server.ts",
+    "dev:channels": "tsx watch src/channel-server.ts",
     "build": "tsc",
     "start": "node dist/server.js",
+    "start:channels": "node dist/channel-server.js",
     "test": "vitest",
     "test:run": "vitest run",
     "typecheck": "tsc --noEmit",

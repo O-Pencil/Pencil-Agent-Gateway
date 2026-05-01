@@ -29,6 +29,7 @@
 | `09-asgard-integration-guide.md` | Asgard-specific integration | ✅ Complete |
 | `10-editor-integration-guide.md` | Editor-specific integration | ✅ Complete |
 | `11-containerized-deployment.md` | Docker/K8s deployment | ✅ Complete |
+| `13-channel-integration.md` | Stage-one DingTalk/WeChat/Feishu channel wrapper boundary | ✅ Complete |
 | `README.md` | Docs index | ✅ Complete |
 
 ---
@@ -48,6 +49,7 @@
 - `09-asgard-integration-guide.md` — Asgard specifics
 - `10-editor-integration-guide.md` — Editor specifics
 - `05-caller-runtime.md` — SDK/runtime for callers
+- `13-channel-integration.md` — DingTalk/WeChat/Feishu channel wrapper contract
 
 ### Implementation
 - `07-m7-nano-pencil-integration.md` — nano-pencil SDK usage

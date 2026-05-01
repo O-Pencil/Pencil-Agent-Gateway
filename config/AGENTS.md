@@ -40,7 +40,15 @@
     }
   ],
   "dataDir": "./data",
-  "agents": []
+  "agents": [],
+  "channels": {
+    "enabled": false,
+    "server": { "host": "0.0.0.0", "port": 8090 },
+    "gateway": { "baseUrl": "http://127.0.0.1:8080", "apiKey": "pk_dev_default" },
+    "allowlist": { "allowAll": false, "senderIds": [], "chatIds": [] },
+    "routes": [],
+    "accounts": { "feishu": {}, "wechat": {} }
+  }
 }
 ```
 
@@ -58,6 +66,10 @@
 | `API_KEY` | Quick-start API key | `pk_quick_start` |
 | `GATEWAY_ALLOW_NO_AUTH` | Allow startup without API keys | `1` |
 | `SHUTDOWN_TIMEOUT_MS` | Graceful shutdown timeout | `10000` |
+| `CHANNEL_HOST` | Optional channel wrapper host | `0.0.0.0` |
+| `CHANNEL_PORT` | Optional channel wrapper port | `8090` |
+| `CHANNEL_GATEWAY_BASE_URL` | Gateway URL used by channel wrapper | `http://127.0.0.1:8080` |
+| `CHANNEL_GATEWAY_API_KEY` | API key used by channel wrapper | `pk_channel` |
 
 ---
 
@@ -114,6 +126,49 @@
 {
   "id": "my-agent"
   // model omitted — uses local nano-pencil default
+}
+```
+
+## Channel Configuration
+
+The optional `channels` block is only for the stage-one WeChat/Feishu text wrapper. Route entries map a platform conversation to a hosted PencilAgent model id:
+
+```json
+{
+  "channels": {
+    "enabled": true,
+    "gateway": {
+      "baseUrl": "http://127.0.0.1:8080",
+      "apiKey": "pk_dev_default",
+      "defaultAgentModel": "pencil/writing-assistant"
+    },
+    "allowlist": {
+      "senderIds": ["ou_xxx", "wechat-open-id"],
+      "chatIds": ["oc_xxx"]
+    },
+    "routes": [
+      {
+        "channel": "feishu",
+        "accountId": "default",
+        "chatId": "oc_xxx",
+        "agentModel": "pencil/writing-assistant"
+      }
+    ],
+    "accounts": {
+      "feishu": {
+        "default": {
+          "appId": "${FEISHU_APP_ID}",
+          "appSecret": "${FEISHU_APP_SECRET}",
+          "verificationToken": "${FEISHU_VERIFICATION_TOKEN}"
+        }
+      },
+      "wechat": {
+        "default": {
+          "token": "${WECHAT_TOKEN}"
+        }
+      }
+    }
+  }
 }
 ```
 

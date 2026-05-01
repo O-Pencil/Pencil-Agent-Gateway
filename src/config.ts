@@ -12,6 +12,7 @@ import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { InvalidRequestError } from './util/errors.js';
 import { logger } from './util/logger.js';
+import type { ChannelsConfig } from './channels/types.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -126,6 +127,7 @@ export interface GatewayConfig {
   apiKeys: ApiKeyConfig[];
   dataDir: string;
   agents: AgentConfig[];
+  channels?: ChannelsConfig;
 }
 
 /**

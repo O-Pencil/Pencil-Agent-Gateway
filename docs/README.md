@@ -62,6 +62,9 @@ updated: 2026-04-29
 13. [12-asgard-web-ui-guide.md](./12-asgard-web-ui-guide.md)
    - Asgard-web 前端接入指南：信息架构、4 个核心页面（Agent 列表 / 创建表单 / 对话窗 / Key 管理）、SSE 消费 + AbortController、错误展示模式。
 
+14. [13-channel-integration.md](./13-channel-integration.md)
+   - 钉钉/微信/飞书第一版 channel wrapper 边界：平台消息归一化、路由、allowlist、通过 Gateway HTTP 调用 PencilAgent，以及未来拆出 `pencil-channel-gateway` 的迁移规则。
+
 ## Status
 
 These documents are the source of truth for the v0.1 build until code exists.
