@@ -56,6 +56,7 @@ import {
  */
 const NANOPENCIL_OPTIONAL_API_KEY_PROVIDERS: string[] = [
   'dashscope-coding',
+  'ali-token-plan-openai',
   'qianfan-coding',
   'ark-coding',
   'minimax-coding',
@@ -88,6 +89,12 @@ function providerEnvApiKey(provider?: string): string | undefined {
     provider.toUpperCase().replace(/[^A-Z0-9]/g, '_') + '_API_KEY',
   ];
   if (normalized === 'gemini') candidates.push('GOOGLE_API_KEY');
+  // Same DashScope Coding endpoint as dashscope-coding; users often only have
+  // DASHSCOPE_API_KEY in the environment.
+  if (normalized === 'ali_token_plan_openai') {
+    candidates.push('DASHSCOPE_API_KEY');
+    candidates.push('DASHSCOPE_CODING_API_KEY');
+  }
   for (const name of candidates) {
     const value = process.env[name];
     if (value && value.trim()) return value.trim();
@@ -470,7 +477,56 @@ export class NanoPencilEngineAdapter implements EngineAdapter {
       );
     }
 
-    const model = localRegistry.find(resolvedProvider, resolvedModelName);
+    let model = localRegistry.find(resolvedProvider, resolvedModelName);
+
+    // Newer Coding Plan provider ids (e.g. ali-token-plan-openai) may exist in
+    // Gateway presets before the local ~/.pencils/.../models.json seed from the
+    // CLI includes them. If we have a preset + an API key (env or auth.json),
+    // register the provider on the same file-backed registry the inherited path
+    // already uses, then resolve again.
+    if (!model) {
+      const customCfg = resolveCustomProviderConfig(resolvedProvider, {
+        baseUrl: this.modelBaseUrl,
+        api: this.modelApi,
+        models: this.modelDefs,
+      });
+      const cred = localAuth.get(resolvedProvider);
+      const apiKeyFromFile = cred?.type === 'api_key' ? cred.key : undefined;
+      const codingAlias =
+        resolvedProvider === 'ali-token-plan-openai'
+          ? localAuth.get('dashscope-coding')
+          : undefined;
+      const apiKeyFromAlias =
+        codingAlias?.type === 'api_key' ? codingAlias.key : undefined;
+      let effectiveKey =
+        providerEnvApiKey(resolvedProvider) ?? apiKeyFromFile ?? apiKeyFromAlias;
+      // OAuth / token-refresh (e.g. ali-token-plan-openai): sync get() misses it; getApiKey() matches CLI.
+      if (!effectiveKey && (cred?.type === 'oauth' || !cred)) {
+        effectiveKey = (await localAuth.getApiKey(resolvedProvider)) ?? undefined;
+      }
+      if (!effectiveKey && resolvedProvider === 'ali-token-plan-openai' && !cred) {
+        effectiveKey = (await localAuth.getApiKey('dashscope-coding')) ?? undefined;
+      }
+
+      if (customCfg && effectiveKey && customCfg.models.some(m => m.id === resolvedModelName)) {
+        localRegistry.registerProvider(resolvedProvider, {
+          baseUrl: customCfg.baseUrl,
+          api: customCfg.api as never,
+          apiKey: effectiveKey,
+          models: customCfg.models.map(m => ({
+            id: m.id,
+            name: m.name,
+            reasoning: false,
+            input: m.input,
+            cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+            contextWindow: m.contextWindow,
+            maxTokens: m.maxTokens,
+          })),
+        });
+        model = localRegistry.find(resolvedProvider, resolvedModelName);
+      }
+    }
+
     if (!model) {
       const registryError = localRegistry.getError();
       throw new EngineError(

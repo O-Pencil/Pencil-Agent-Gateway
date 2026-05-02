@@ -129,10 +129,11 @@ describe('NanoPencilEngineAdapter', () => {
 });
 
 describe('Coding Plan presets', () => {
-  it('exposes all five Coding Plan providers + anthropic-custom', () => {
+  it('exposes Coding Plan providers + anthropic-custom', () => {
     const providers = listCodingPlanProviders().sort();
     expect(providers).toEqual(
       [
+        'ali-token-plan-openai',
         'anthropic-custom',
         'ark-coding',
         'dashscope-coding',

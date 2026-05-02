@@ -33,7 +33,11 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 PENCIL_DIR="${REPO_ROOT}/pencils/${PENCIL_NAME}"
 CONFIG_PATH="${PENCIL_DIR}/config.json"
 DATA_DIR="${PENCIL_DIR}/data"
-AGENT_DIR="${HOME}/.pencils/${PENCIL_NAME}"
+# Default agentDir is isolated per pencil. If you already use `nanopencil` with the
+# stock home, set NANOPENCIL_CODING_AGENT_DIR before this script (e.g. to
+# "$HOME/.nanopencil/agent") so Gateway reads the same auth.json/models.json as the CLI.
+DEFAULT_AGENT_DIR="${HOME}/.pencils/${PENCIL_NAME}"
+AGENT_DIR="${NANOPENCIL_CODING_AGENT_DIR:-${DEFAULT_AGENT_DIR}}"
 
 if [[ ! -f "${CONFIG_PATH}" ]]; then
   echo "error: ${CONFIG_PATH} not found" >&2
@@ -64,14 +68,25 @@ shopt -u nullglob
 
 export GATEWAY_CONFIG="${CONFIG_PATH}"
 export DATA_DIR="${DATA_DIR}"
-export NANOPENCIL_CODING_AGENT_DIR="${AGENT_DIR}"
+# Always export a single source of truth for the Node process (npx tsx + channel server).
+# Pre-set value wins (e.g. match CLI: $HOME/.nanopencil/agent); else use per-pencil default.
+export NANOPENCIL_CODING_AGENT_DIR="${NANOPENCIL_CODING_AGENT_DIR:-${AGENT_DIR}}"
+
+# Common mistake: pointing at the repo's pencils/<name>/ (Gateway config only) — not auth.json.
+if [[ "${NANOPENCIL_CODING_AGENT_DIR}" == *"/Pencil-Agent-Gateway/pencils/"* ]] ||
+  [[ "${NANOPENCIL_CODING_AGENT_DIR}" == *"/pencils/pencil-"* && "${NANOPENCIL_CODING_AGENT_DIR}" != *"/.pencils/"* ]]; then
+  echo "error: NANOPENCIL_CODING_AGENT_DIR looks like the Gateway repo folder, not nanopencil data." >&2
+  echo "       Use the same directory as the CLI: export NANOPENCIL_CODING_AGENT_DIR=\"\$HOME/.nanopencil/agent\"" >&2
+  echo "       (optional isolate slot: \$HOME/.pencils/${PENCIL_NAME})" >&2
+  exit 64
+fi
 
 cd "${REPO_ROOT}"
 
 echo "pencil:    ${PENCIL_NAME}"
 echo "config:    ${CONFIG_PATH}"
 echo "data:      ${DATA_DIR}"
-echo "agentDir:  ${AGENT_DIR}"
+echo "agentDir:  ${NANOPENCIL_CODING_AGENT_DIR}"
 
 if [[ "${WITH_CHANNELS}" == "--with-channels" ]]; then
   echo "mode:      gateway + channel server (parallel)"

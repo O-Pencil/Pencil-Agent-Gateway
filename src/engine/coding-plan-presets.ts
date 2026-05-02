@@ -69,6 +69,22 @@ export const CODING_PLAN_PRESETS: Record<string, CodingPlanPreset> = {
     ],
   },
 
+  /**
+   * 阿里云「Token 套餐」OpenAI 兼容入口（与 dashscope-coding 不是同一 host）。
+   * Keep in sync with nano-pencil `models.json` seed for `ali-token-plan-openai`
+   * (see NANOPENCIL_DEFAULT_MODELS_JSON / user ~/.nanopencil/agent/models.json).
+   */
+  'ali-token-plan-openai': {
+    baseUrl: 'https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1',
+    api: 'openai-completions',
+    models: [
+      { id: 'qwen3.6-plus', name: 'Qwen3.6 Plus (Ali Token Plan OpenAI)', input: ['text'], contextWindow: 262144, maxTokens: 65536 },
+      { id: 'glm-5', name: 'GLM-5 (Ali Token Plan OpenAI)', input: ['text'], contextWindow: 202752, maxTokens: 16384 },
+      { id: 'MiniMax-M2.5', name: 'MiniMax M2.5 (Ali Token Plan OpenAI)', input: ['text'], contextWindow: 204800, maxTokens: 65536 },
+      { id: 'deepseek-v3.2', name: 'DeepSeek V3.2 (Ali Token Plan OpenAI)', input: ['text'], contextWindow: 262144, maxTokens: 65536 },
+    ],
+  },
+
   'minimax-coding': {
     baseUrl: 'https://api.minimaxi.com/v1',
     api: 'openai-completions',

@@ -11,6 +11,7 @@ import { Hono } from 'hono';
 import { GatewayError } from '../util/errors.js';
 import { logger } from '../util/logger.js';
 import { DingTalkAdapter, normalizeDingTalkPayload, verifyDingTalkRelayAuth } from './dingtalk/adapter.js';
+import { shouldProcessDingTalkInbound } from './dingtalk/dedup.js';
 import { resolveStreamingContext, streamDingTalkReply } from './dingtalk/streaming.js';
 import { FeishuAdapter, normalizeFeishuPayload, verifyFeishuPayload } from './feishu/adapter.js';
 import { runChannelMessage } from './gateway-client.js';
@@ -96,6 +97,17 @@ function formatChannelErrorReply(err: unknown): string {
       '当前 pencil 找不到可用模型或 API key。请检查 `~/.pencils/<name>/settings.json` 与 `auth.json`。',
       '',
       `> ${raw}`,
+    ].join('\n');
+  }
+  if (/401|invalid access token|token expired/i.test(raw)) {
+    return [
+      '**上游模型鉴权失败（401）**',
+      '',
+      '灵码 / DashScope 的 API Key 无效、过期或与当前 provider 不匹配。',
+      '请检查 `pencils/<name>/.env.llm` 里的 `ALI_TOKEN_PLAN_OPENAI_API_KEY` 或 `DASHSCOPE_API_KEY`，',
+      '或在对应 agentDir 下执行 `nanopencil /login` 重新登录后再试。',
+      '',
+      `> ${raw.length > 300 ? `${raw.slice(0, 300)}…` : raw}`,
     ].join('\n');
   }
   if (code === 'agent_not_found' || code === 'forbidden_agent') {
@@ -191,6 +203,15 @@ export function createChannelApp(): Hono {
     const payload = await c.req.json();
     const message = normalizeDingTalkPayload(payload, accountId);
     if (!message) return c.json({ ok: true, ignored: true });
+
+    if (!shouldProcessDingTalkInbound(accountId, message)) {
+      logger.info('DingTalk inbound suppressed as duplicate (same chat/text within dedup window)', {
+        accountId,
+        chatId: message.chatId,
+        messageId: message.id,
+      });
+      return c.json({ ok: true, ignored: true, reason: 'dedup' });
+    }
 
     // Resolve route synchronously so that any routing/auth error fails the
     // webhook synchronously (HTTP 4xx visible in relay logs). The actual
