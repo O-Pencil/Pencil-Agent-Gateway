@@ -29,15 +29,43 @@
  * of the actual failure (bad model, bad key, rate limit, etc.).
  */
 
+import { join } from 'node:path';
+
 import {
   createAgentSession,
   ModelRegistry,
   AuthStorage,
   SessionManager,
+  SettingsManager,
   DefaultResourceLoader,
   getAgentDir,
   silentLogger,
 } from '@pencil-agent/nano-pencil';
+
+/**
+ * Provider IDs whose `apiKey` lives in `auth.json` rather than `models.json`.
+ * Mirrors the `allowOptionalApiKeyForProvider` list nanopencil's CLI passes
+ * when it constructs its ModelRegistry (see nano-pencil dist/main.js). Without
+ * this whitelist, ModelRegistry's schema validator rejects every coding-plan
+ * provider in the user's models.json, silently dropping them and producing
+ * "No model selected" at chat time.
+ *
+ * Keep in sync with nanopencil's NANOPENCIL_*_PROVIDER constants. We hardcode
+ * the strings instead of importing them because they are part of the CLI
+ * package's private surface, not the SDK's public exports.
+ */
+const NANOPENCIL_OPTIONAL_API_KEY_PROVIDERS: string[] = [
+  'dashscope-coding',
+  'qianfan-coding',
+  'ark-coding',
+  'minimax-coding',
+  'zhipu-coding',
+  'anthropic-custom',
+  'ollama',
+  'openrouter',
+  'custom-anthropic',
+  'custom-openai',
+];
 import type { AgentSession, AgentSessionEvent } from '@pencil-agent/nano-pencil';
 
 import type { EngineAdapter, EngineRunRequest, EngineRunOptions, EngineRunResult } from './adapter.js';
@@ -264,6 +292,16 @@ export class NanoPencilEngineAdapter implements EngineAdapter {
    */
   private async buildSessionOptions(sessionId: string) {
     const opts: Parameters<typeof createAgentSession>[0] = {
+      // Always pin agentDir explicitly. Without it the SDK passes `undefined`
+      // to AuthStorage.create()/new ModelRegistry(), which collapses to the
+      // built-in defaults — bypassing the user's custom providers in
+      // <agentDir>/models.json (e.g. minimax-coding, dashscope-coding,
+      // qianfan-coding). That makes every "inherited mode + settings-derived
+      // model" request fail with "No model selected" even when settings.json
+      // and auth.json are correct. Pinning agentDir here keeps the BYO-key
+      // and explicit-provider branches' behaviour, and gives the implicit
+      // branch the same view the local nanopencil CLI sees.
+      agentDir: getAgentDir(),
       enableSoul: false,
       enableMCP: false,
       silent: true,
@@ -380,31 +418,78 @@ export class NanoPencilEngineAdapter implements EngineAdapter {
     }
 
     // ── inherited mode ───────────────────────────────────
-    // Defer to ~/.nanopencil/. If the user supplied provider+name, look the
-    // model up in their *local* registry so it benefits from any custom
-    // models.json overrides; otherwise let createAgentSession pick its default.
-    if (this.provider && this.modelName) {
-      const localAuth = AuthStorage.create(getAgentDir());
-      const localRegistry = new ModelRegistry(localAuth);
-      const model = localRegistry.find(this.provider, this.modelName);
-      if (!model) {
-        throw new EngineError(
-          `Model '${this.modelName}' not found for provider '${this.provider}' in the local nano-pencil registry. ` +
-            'Either pick a name the local install knows about, or omit model.* to use the local default.',
-        );
-      }
-      opts.model = model;
-      opts.authStorage = localAuth;
-      opts.modelRegistry = localRegistry;
+    // Defer to the user's nanopencil install at <agentDir>. We always build
+    // the local AuthStorage + ModelRegistry ourselves rather than letting
+    // createAgentSession default-construct them, because:
+    //
+    //   1. The SDK's default `new ModelRegistry(authStorage, modelsPath)`
+    //      omits `allowOptionalApiKeyForProvider`. That makes ModelRegistry's
+    //      schema validator reject every coding-plan provider in the user's
+    //      models.json (dashscope-coding, minimax-coding, qianfan-coding,
+    //      ark-coding, zhipu-coding, ...) because their apiKey lives in
+    //      auth.json, not models.json. Result: the registry silently throws
+    //      away the entire models.json and findInitialModel() returns
+    //      undefined, so chat fails with "No model selected" even when the
+    //      user's settings + auth are fine. nanopencil CLI's main.ts allows
+    //      these providers to skip the apiKey requirement; we mirror that
+    //      list here so Gateway sees the same registry the CLI sees.
+    //
+    //   2. With the registry in hand we can resolve the model deterministically
+    //      from settings.json (defaultProvider + defaultModel) when the agent
+    //      config didn't pin a provider/name. This mirrors how the CLI resolves
+    //      its startup model and surfaces clear errors when settings are
+    //      incomplete, instead of bubbling up an unhelpful "No model selected".
+    const agentDir = getAgentDir();
+    // AuthStorage.create() expects the path to auth.json itself, NOT the
+    // agentDir. Passing the directory makes FileAuthStorageBackend treat the
+    // dir as a file, silently ending up with an empty storage and surfacing
+    // as "No API key found for <provider>" at chat time.
+    const localAuth = AuthStorage.create(join(agentDir, 'auth.json'));
+    // ModelRegistry signature is (authStorage, modelsJsonPath?, options?).
+    // Passing undefined for modelsJsonPath makes it default to
+    // join(getAgentDir(), 'models.json') — same file we want — but we name it
+    // explicitly here so a future agentDir-override doesn't drift.
+    const localRegistry = new ModelRegistry(localAuth, join(agentDir, 'models.json'), {
+      allowOptionalApiKeyForProvider: NANOPENCIL_OPTIONAL_API_KEY_PROVIDERS,
+    });
+
+    let resolvedProvider = this.provider;
+    let resolvedModelName = this.modelName;
+
+    if (!resolvedProvider || !resolvedModelName) {
+      const settings = SettingsManager.create(process.cwd(), agentDir);
+      resolvedProvider = resolvedProvider ?? settings.getDefaultProvider();
+      resolvedModelName = resolvedModelName ?? settings.getDefaultModel();
     }
-    // else: no opts.model / opts.authStorage / opts.modelRegistry → SDK uses
-    // its full default chain (AuthStorage.create + default ModelRegistry +
-    // settings-derived default model).
+
+    if (!resolvedProvider || !resolvedModelName) {
+      throw new EngineError(
+        `Local nano-pencil install at '${agentDir}' has no defaultProvider/defaultModel in settings.json. ` +
+          `Run \`NANOPENCIL_CODING_AGENT_DIR="${agentDir}" nanopencil\` and pick a model with /model, ` +
+          'or pin model.provider + model.name in the agent config.',
+      );
+    }
+
+    const model = localRegistry.find(resolvedProvider, resolvedModelName);
+    if (!model) {
+      const registryError = localRegistry.getError();
+      throw new EngineError(
+        `Model '${resolvedModelName}' not found for provider '${resolvedProvider}' in the local nano-pencil registry at '${agentDir}'.` +
+          (registryError ? `\n\nmodels.json load error: ${registryError}` : '') +
+          '\n\nVerify the provider exists in <agentDir>/models.json and the auth.json key for it is set (`/login`).',
+      );
+    }
+
+    opts.model = model;
+    opts.authStorage = localAuth;
+    opts.modelRegistry = localRegistry;
 
     logger.debug('AgentSession options (inherited)', {
       sessionId,
-      provider: this.provider ?? '(local default)',
-      model: this.modelName ?? '(local default)',
+      agentDir,
+      provider: resolvedProvider,
+      model: resolvedModelName,
+      sourcedFromSettings: !this.provider || !this.modelName,
     });
     return opts;
   }

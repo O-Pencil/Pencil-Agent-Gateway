@@ -80,6 +80,36 @@ export interface DingTalkAccountConfig {
   requireMention?: boolean;
   freeResponseChatIds?: string[];
   mentionPatterns?: string[];
+  /**
+   * AI card template id (ends in `.schema`) created on DingTalk's card platform.
+   * When set together with `clientId`+`clientSecret`+`robotCode`, DingTalk
+   * webhook deliveries use the AI card streaming pipeline (typewriter effect)
+   * instead of the legacy single-shot sessionWebhook markdown post.
+   *
+   * For quick local testing the docs publish a shared example template:
+   *   `8aebdfb9-28f4-4a98-98f5-396c3dde41a0.schema`
+   * Production deployments should create their own template under their own
+   * app — the example template can be revoked or rate-limited at any time.
+   */
+  cardTemplateId?: string;
+  /**
+   * Robot code used for outbound card delivery. For Stream-mode robots this
+   * equals the AppKey (clientId). Leave unset to fall back to clientId.
+   */
+  robotCode?: string;
+  /**
+   * Variable name inside the card template that holds the streaming markdown
+   * body. Defaults to `content` to match DingTalk's published example
+   * template; override only if your custom template uses a different key.
+   */
+  cardContentKey?: string;
+  /**
+   * Force streaming on/off independently of cardTemplateId presence. Useful
+   * to fall back to sessionWebhook delivery for one account while keeping
+   * the template configured for others. Defaults to true when cardTemplateId
+   * + creds + robotCode are all present.
+   */
+  streamingEnabled?: boolean;
 }
 
 export interface ChannelAccountsConfig {

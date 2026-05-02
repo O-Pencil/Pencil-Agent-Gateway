@@ -40,6 +40,20 @@ deploy/Caddyfile
 deploy/gateway.json
 deploy/secrets/
 
+# Local pencil instances: each pencils/<name>/ holds a private Gateway
+# config + dataDir for one PencilAgent. Templates live under pencils/.example/
+# and are version-controlled.
+pencils/*
+!pencils/.example/
+!pencils/README.md
+
+# Channel relays: source is committed, but each relay subproject installs its
+# own deps and may emit build artefacts.
+relays/*/node_modules/
+relays/*/dist/
+relays/*/.env
+relays/*/.env.local
+
 #extensions
 .memory-experiments/
 .claude/

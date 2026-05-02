@@ -131,14 +131,37 @@ export interface GatewayConfig {
 }
 
 /**
- * Interpolate environment variables in a string
- * Supports ${VAR} syntax
+ * Interpolate environment variables in a string.
+ *
+ * Supports two forms (bash-compatible subset):
+ *
+ *   ${VAR}              hard reference — throws InvalidRequestError if VAR is unset.
+ *                       Use for required values (apiKeys, secrets that must be present).
+ *
+ *   ${VAR:-default}     soft reference — returns `default` if VAR is unset OR empty.
+ *                       The default may itself be empty (`${VAR:-}`), which yields ""
+ *                       and lets downstream code treat the field as "not configured".
+ *                       Use for optional channel features (e.g. AI card template id),
+ *                       so a pencil that hasn't enabled DingTalk streaming doesn't
+ *                       block Gateway startup.
+ *
+ * The `:-` form mirrors POSIX shell semantics so ops folks don't need to learn a
+ * second syntax. `${VAR-default}` (no colon) is intentionally NOT supported — the
+ * distinction between "unset" and "set-but-empty" rarely matters for our config
+ * surface and the colon form is the safer default.
  */
 export function interpolateEnv(value: string): string {
-  return value.replace(/\$\{([^}]+)\}/g, (_match, envVar) => {
-    const envValue = process.env[envVar];
+  return value.replace(/\$\{([^}]+)\}/g, (_match, expr: string) => {
+    const sepIdx = expr.indexOf(':-');
+    if (sepIdx >= 0) {
+      const name = expr.slice(0, sepIdx).trim();
+      const fallback = expr.slice(sepIdx + 2);
+      const v = process.env[name];
+      return v === undefined || v === '' ? fallback : v;
+    }
+    const envValue = process.env[expr];
     if (envValue === undefined) {
-      throw new InvalidRequestError(`Environment variable ${envVar} is not set`);
+      throw new InvalidRequestError(`Environment variable ${expr} is not set`);
     }
     return envValue;
   });

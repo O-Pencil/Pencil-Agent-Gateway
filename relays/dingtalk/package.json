@@ -1,0 +1,22 @@
+{
+  "name": "pencil-relay-dingtalk",
+  "version": "0.1.0",
+  "private": true,
+  "description": "DingTalk Stream Mode → Pencil-Agent-Gateway HTTP webhook relay (independent of the Gateway process).",
+  "type": "module",
+  "main": "src/index.ts",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "start": "tsx src/index.ts",
+    "build": "tsc",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "dingtalk-stream": "^2.1.5"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0"
+  }
+}

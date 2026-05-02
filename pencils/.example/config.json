@@ -1,0 +1,70 @@
+{
+  "_comment_naming": "Folder name = persona slot (NOT a channel name). See pencils/README.md.",
+  "_comment_ports": "Each pencil reserves Gateway port (18080+) and channel port (18090+). Bump for each new slot.",
+
+  "gateway": {
+    "host": "127.0.0.1",
+    "port": 18080,
+    "logLevel": "info",
+    "corsOrigins": "*",
+    "requestTimeoutMs": 120000
+  },
+  "apiKeys": [
+    {
+      "key": "pk_dev_default",
+      "label": "local-dev-key",
+      "allowedAgents": "*"
+    }
+  ],
+  "dataDir": "./data",
+  "agents": [
+    {
+      "id": "pencil-01",
+      "name": "Pencil 01 (rename me)",
+      "soul": {
+        "systemPrompt": "你是这只 pencil 的灵魂。请在此写下你的人格、风格、偏好、禁忌。",
+        "styleTags": ["temperate", "succinct"]
+      },
+      "memory": {
+        "mode": "short-term",
+        "maxTurns": 32
+      }
+    }
+  ],
+  "channels": {
+    "enabled": false,
+    "_comment_enabled": "Flip to true after filling accounts.dingtalk.default.webhookSecret and adding a route.",
+    "server": {
+      "host": "127.0.0.1",
+      "port": 18090
+    },
+    "gateway": {
+      "baseUrl": "http://127.0.0.1:18080",
+      "apiKey": "pk_dev_default",
+      "defaultAgentModel": "pencil/pencil-01"
+    },
+    "allowlist": {
+      "allowAll": false,
+      "senderIds": [],
+      "chatIds": []
+    },
+    "routes": [],
+    "accounts": {
+      "dingtalk": {
+        "default": {
+          "_comment_env_refs": "Soft refs `${VAR:-}` keep Gateway boot working when the env var is unset (channel auto-disables); switch to hard `${VAR}` if you want startup to fail loudly when secrets are missing.",
+          "webhookSecret": "${DINGTALK_RELAY_SECRET:-}",
+          "requireMention": true,
+          "freeResponseChatIds": [],
+          "mentionPatterns": ["^小铅笔"],
+          "clientId": "${DINGTALK_CLIENT_ID:-}",
+          "clientSecret": "${DINGTALK_CLIENT_SECRET:-}",
+          "robotCode": "${DINGTALK_ROBOT_CODE:-}",
+          "cardTemplateId": "${DINGTALK_AI_CARD_TEMPLATE_ID:-}"
+        }
+      },
+      "feishu": {},
+      "wechat": {}
+    }
+  }
+}
