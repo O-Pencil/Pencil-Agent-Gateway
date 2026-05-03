@@ -62,10 +62,13 @@ updated: 2026-05-03
 13. [12-asgard-web-ui-guide.md](./12-asgard-web-ui-guide.md)
    - Asgard-web 前端接入指南：信息架构、4 个核心页面（Agent 列表 / 创建表单 / 对话窗 / Key 管理）、SSE 消费 + AbortController、错误展示模式。
 
-14. [13-channel-integration.md](./13-channel-integration.md)
-   - 钉钉/微信/飞书第一版 channel wrapper 边界：平台消息归一化、路由、allowlist、通过 Gateway HTTP 调用 PencilAgent，以及未来拆出 `pencil-channel-gateway` 的迁移规则。
+13. [13-channel-integration.md](./13-channel-integration.md)
+   - 钉钉/微信/飞书第一版 channel wrapper 边界：平台消息归一化、路由、allowlist、通过 Gateway HTTP 调用 PencilAgent，以及未来拆出 `pencil-channel-gateway` 的迁移规则。含 v0.1 扩展实现（去重、401 友好提示、AI Card 流式）。
 
-15. [14-editor-gateway-minimal-integration.md](./14-editor-gateway-minimal-integration.md)
+14. [14-multi-pencil-architecture.md](./14-multi-pencil-architecture.md)
+   - 多 Pencil 实例架构：记忆隔离、启动脚本、跨实例通信方案（A/B/C 三种方案对比）。
+
+15. [15-editor-gateway-minimal-integration.md](./15-editor-gateway-minimal-integration.md)
    - 不经过 Asgard 的最小 editor ↔ Gateway 接入指南：部署 Gateway、创建 PencilAgent、配置 editor `remote-http`、消费 OpenAI SSE、验收清单。
 
 ## Status

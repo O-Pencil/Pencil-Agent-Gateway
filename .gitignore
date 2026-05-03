@@ -46,6 +46,7 @@ deploy/secrets/
 pencils/*
 !pencils/.example/
 !pencils/README.md
+.nanopencil
 
 # Channel relays: source is committed, but each relay subproject installs its
 # own deps and may emit build artefacts.
