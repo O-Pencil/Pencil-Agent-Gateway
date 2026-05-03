@@ -30,6 +30,7 @@
 | `10-editor-integration-guide.md` | Editor-specific integration | ✅ Complete |
 | `11-containerized-deployment.md` | Docker/K8s deployment | ✅ Complete |
 | `13-channel-integration.md` | Stage-one DingTalk/WeChat/Feishu channel wrapper boundary | ✅ Complete |
+| `14-editor-gateway-minimal-integration.md` | Minimal editor-to-Gateway integration without Asgard | ✅ Complete |
 | `README.md` | Docs index | ✅ Complete |
 
 ---
@@ -48,6 +49,7 @@
 - `04-asgard-editor-integration.md` — High-level integration
 - `09-asgard-integration-guide.md` — Asgard specifics
 - `10-editor-integration-guide.md` — Editor specifics
+- `14-editor-gateway-minimal-integration.md` — Minimal editor-to-Gateway path before Asgard
 - `05-caller-runtime.md` — SDK/runtime for callers
 - `13-channel-integration.md` — DingTalk/WeChat/Feishu channel wrapper contract
 

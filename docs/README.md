@@ -4,7 +4,7 @@ status: active
 scope: docs-index
 owner: pencil-agent-gateway maintainers
 created: 2026-04-25
-updated: 2026-04-29
+updated: 2026-05-03
 ---
 
 # Pencil Agent Gateway Docs
@@ -64,6 +64,9 @@ updated: 2026-04-29
 
 14. [13-channel-integration.md](./13-channel-integration.md)
    - 钉钉/微信/飞书第一版 channel wrapper 边界：平台消息归一化、路由、allowlist、通过 Gateway HTTP 调用 PencilAgent，以及未来拆出 `pencil-channel-gateway` 的迁移规则。
+
+15. [14-editor-gateway-minimal-integration.md](./14-editor-gateway-minimal-integration.md)
+   - 不经过 Asgard 的最小 editor ↔ Gateway 接入指南：部署 Gateway、创建 PencilAgent、配置 editor `remote-http`、消费 OpenAI SSE、验收清单。
 
 ## Status
 
