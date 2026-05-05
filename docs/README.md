@@ -72,7 +72,10 @@ updated: 2026-05-03
    - 不经过 Asgard 的最小 editor ↔ Gateway 接入指南：部署 Gateway、创建 PencilAgent、配置 editor `remote-http`、消费 OpenAI SSE、验收清单。
 
 16. [16-pencils-storage-layout.md](./16-pencils-storage-layout.md)
-   - Pencils 单根存储布局（`~/.pencils/`）、env 覆盖、云端 + 本地混合（"领养"模板含 Soul + memory seed + settings）、与 nanoPencil `multi-agent-fs-design.md` 合并方案；Workspace 作为 Agent 平级一等公民；Teams 与 Gateway 调度模型对齐；Gateway / nanoPencil 改动清单与执行顺序。
+   - Pencils 单根存储布局（`~/.pencils/`）、env 覆盖、云端 + 本地混合（"领养"模板含 Soul + memory seed + settings）、与 nanoPencil `multi-agent-fs-design.md` 合并方案；Workspace 作为 Agent 平级一等公民；Teams 与 Gateway 调度模型对齐；ID/Name 区分 + `agent.json` 元数据；Gateway / nanoPencil 改动清单与执行顺序。
+
+17. [17-nanopencil-multi-agent-impact-eval.md](./17-nanopencil-multi-agent-impact-eval.md)
+   - Step B 评估产物：nanoPencil 源码改造影响面（72 处 path-derived 调用、18 个文件、3 类硬编码点）；`AgentDirContext` 抽象；与 nanoPencil `docs/multi-agent-fs-design.md` 概念对齐与合并方案；Teams 5 阶段重构计划（in-process leader → 多 Agent Gateway 协作）；`team-state-store.ts` env 名 latent bug 顺手修；19 个可独立合并 PR 的拆分清单。
 
 ## Status
 
