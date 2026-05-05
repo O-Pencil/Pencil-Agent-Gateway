@@ -197,7 +197,7 @@ export async function createAndDeliverCard(opts: CreateAndDeliverCardOptions): P
       // ignore
     }
     throw new EngineError(
-      `DingTalk createAndDeliver failed: HTTP ${res.status} code=${parsed.code ?? '?'} ${parsed.message || text.slice(0, 300)}`,
+      `DingTalk createAndDeliver failed: HTTP ${res.status} code=${parsed.code ?? '?'} requestId=${parsed.requestId ?? '?'} ${parsed.message || text.slice(0, 300)}`,
     );
   }
   logger.debug('DingTalk card delivered', {
@@ -226,6 +226,23 @@ interface StreamingUpdateResponseBody {
 }
 
 /**
+ * 429 / 5xx are transient — retry with bounded exponential backoff. 4xx other
+ * than 429 (auth, schema, template not found) are caller errors and should
+ * fail fast so the streaming pipeline can finalize the card with an error
+ * frame instead of looping forever.
+ */
+const STREAM_CARD_RETRYABLE_STATUSES = new Set([408, 429, 500, 502, 503, 504]);
+const STREAM_CARD_MAX_ATTEMPTS = 3;
+const STREAM_CARD_BASE_BACKOFF_MS = 200;
+
+function streamCardBackoffMs(attempt: number): number {
+  // 200ms, 400ms — bounded so the card never sits inputting longer than ~1s
+  // due to retries alone. Caller's outer throttle (~600ms) keeps the actual
+  // push rate well within DingTalk's published 1Hz envelope.
+  return STREAM_CARD_BASE_BACKOFF_MS * 2 ** Math.max(0, attempt - 1);
+}
+
+/**
  * Push one frame of streaming content. For markdown variables, every call MUST
  * carry the *complete* accumulated text and we set isFull=true — DingTalk's
  * AI card markdown renderer does not support incremental concatenation.
@@ -236,6 +253,10 @@ interface StreamingUpdateResponseBody {
  *  - always call once with isFinalize=true at end-of-stream so the card
  *    transitions out of "inputting" state, regardless of whether the last
  *    throttle window already pushed the same content
+ *
+ * Internally retries on 429 / 5xx up to 3 attempts with 200ms+400ms backoff
+ * so a single transient throttle from DingTalk doesn't drop a frame and leave
+ * the card stuck on stale text.
  */
 export async function streamCard(opts: StreamCardOptions): Promise<void> {
   const token = await getDingTalkAccessToken(opts.creds.clientId, opts.creds.clientSecret);
@@ -249,25 +270,53 @@ export async function streamCard(opts: StreamCardOptions): Promise<void> {
     ...(opts.isError ? { isError: true } : {}),
   };
 
-  const res = await fetch(`${OPENAPI_BASE}/v1.0/card/streaming`, {
-    method: 'PUT',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-acs-dingtalk-access-token': token,
-    },
-    body: JSON.stringify(body),
-  });
+  let lastErr: EngineError | undefined;
+  for (let attempt = 1; attempt <= STREAM_CARD_MAX_ATTEMPTS; attempt += 1) {
+    const res = await fetch(`${OPENAPI_BASE}/v1.0/card/streaming`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-acs-dingtalk-access-token': token,
+      },
+      body: JSON.stringify(body),
+    });
 
-  if (!res.ok) {
+    if (res.ok) {
+      if (attempt > 1) {
+        logger.info('DingTalk streamCard recovered after retry', {
+          outTrackId: opts.outTrackId,
+          attempt,
+          isFinalize: body.isFinalize,
+        });
+      }
+      return;
+    }
+
     const text = await res.text().catch(() => '');
     let parsed: StreamingUpdateResponseBody = {};
     try {
       parsed = JSON.parse(text) as StreamingUpdateResponseBody;
     } catch {
-      // ignore
+      // ignore — keep raw text for the error message
     }
-    throw new EngineError(
-      `DingTalk streamCard failed: HTTP ${res.status} code=${parsed.code ?? '?'} ${parsed.message || text.slice(0, 300)}`,
+
+    lastErr = new EngineError(
+      `DingTalk streamCard failed: HTTP ${res.status} code=${parsed.code ?? '?'} requestId=${parsed.requestId ?? '?'} ${parsed.message || text.slice(0, 300)}`,
     );
+
+    const retryable =
+      STREAM_CARD_RETRYABLE_STATUSES.has(res.status) && attempt < STREAM_CARD_MAX_ATTEMPTS;
+    if (!retryable) break;
+
+    logger.warn('DingTalk streamCard transient error — retrying', {
+      outTrackId: opts.outTrackId,
+      attempt,
+      status: res.status,
+      requestId: parsed.requestId,
+      backoffMs: streamCardBackoffMs(attempt),
+    });
+    await new Promise((r) => setTimeout(r, streamCardBackoffMs(attempt)));
   }
+
+  throw lastErr ?? new EngineError('DingTalk streamCard failed for unknown reason');
 }

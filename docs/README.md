@@ -71,6 +71,9 @@ updated: 2026-05-03
 15. [15-editor-gateway-minimal-integration.md](./15-editor-gateway-minimal-integration.md)
    - 不经过 Asgard 的最小 editor ↔ Gateway 接入指南：部署 Gateway、创建 PencilAgent、配置 editor `remote-http`、消费 OpenAI SSE、验收清单。
 
+16. [16-pencils-storage-layout.md](./16-pencils-storage-layout.md)
+   - Pencils 单根存储布局（`~/.pencils/`）、env 覆盖、云端 + 本地混合（"领养"模板含 Soul + memory seed + settings）、与 nanoPencil `multi-agent-fs-design.md` 合并方案；Workspace 作为 Agent 平级一等公民；Teams 与 Gateway 调度模型对齐；Gateway / nanoPencil 改动清单与执行顺序。
+
 ## Status
 
 These documents are the source of truth for the v0.1 build until code exists.

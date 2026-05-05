@@ -8,10 +8,12 @@
  */
 
 import { readFileSync, existsSync } from 'node:fs';
-import { resolve, dirname } from 'node:path';
+import { homedir } from 'node:os';
+import { resolve, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { InvalidRequestError } from './util/errors.js';
 import { logger } from './util/logger.js';
+import { expandHome, resolveAgainst } from './util/paths.js';
 import type { ChannelsConfig } from './channels/types.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -111,6 +113,23 @@ export interface AgentConfig {
    */
   model?: ModelConfig;
   engine?: EngineConfig;
+  /**
+   * Per-agent nano-pencil install root. Used by NanoPencilEngineAdapter as
+   * the agentDir (auth.json, models.json, settings.json, sessions/). Resolved
+   * via:
+   *   1. this field (after `~` expansion + relative-to-config resolution)
+   *   2. process.env.NANOPENCIL_CODING_AGENT_DIR if this field is unset
+   *   3. `~/.pencils/<config.id>` as the final fallback
+   *
+   * Issue 0012: making this explicit lets multiple PencilAgents coexist in a
+   * single Gateway process (each with its own agentDir). It also removes the
+   * silent "wrong env → wrong persona" footgun that the start-pencil.sh
+   * heuristic was patching.
+   *
+   * Supports `~/` prefix; relative paths resolve against the config file's
+   * directory (or process.cwd() when loaded from env-only fallback).
+   */
+  agentDir?: string;
 }
 
 /**
@@ -291,12 +310,51 @@ export function loadConfig(configPath?: string): GatewayConfig {
     logger.warn('No API keys configured. At least one API key is recommended.');
   }
 
+  // Issue 0012 — `dataDir` and per-agent `agentDir` resolution.
+  //
+  // Why this lives here instead of "wherever it gets used":
+  //   Both fields are user-facing config knobs that mean different things at
+  //   different layers (Gateway registry persistence vs. nano-pencil engine
+  //   state). Resolving them once at load time gives every consumer the same
+  //   absolute path and removes the cwd / config-relative ambiguity that the
+  //   start-pencil.sh heuristic was patching.
+  //
+  //   Resolution rules:
+  //     - `~/` prefix → user home (cross-platform)
+  //     - Relative paths → resolved against the directory containing the
+  //       config file. Loading via env-only fallback uses cwd as base.
+  //     - Default `dataDir`        → `~/.pencils/gateway` (issue 0012 plan A:
+  //       gateway state + nano-pencil agent state under the same `~/.pencils`
+  //       tree, distinct subfolders).
+  //     - Default agent `agentDir` → `~/.pencils/<config.id>` so a given
+  //       PencilAgent's gateway+CLI state share the same folder name.
+  //   Env-var fallback for agentDir keeps the legacy
+  //   `NANOPENCIL_CODING_AGENT_DIR` path working when set; once set on the
+  //   AgentConfig, the env var is no longer consulted for that agent.
+  const configBaseDir = existsSync(configFilePath) ? dirname(configFilePath) : process.cwd();
+  const defaultDataDir = join(homedir(), '.pencils', 'gateway');
+  const rawDataDir = config.dataDir ?? defaultDataDir;
+  config.dataDir = resolveAgainst(configBaseDir, rawDataDir);
+
+  for (const agent of config.agents ?? []) {
+    if (!agent.id) continue;
+    const explicit = agent.agentDir?.trim();
+    const fromEnv = process.env.NANOPENCIL_CODING_AGENT_DIR?.trim();
+    const resolved = explicit
+      ? resolveAgainst(configBaseDir, explicit)
+      : fromEnv
+        ? expandHome(fromEnv)
+        : join(homedir(), '.pencils', agent.id);
+    agent.agentDir = resolved;
+  }
+
   logger.info('Configuration loaded successfully', {
     host: config.gateway.host,
     port: config.gateway.port,
     logLevel: config.gateway.logLevel,
     dataDir: config.dataDir,
     apiKeysCount: config.apiKeys.length,
+    agents: config.agents?.map((a) => ({ id: a.id, agentDir: a.agentDir })) ?? [],
   });
 
   return config;

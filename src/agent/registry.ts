@@ -78,6 +78,10 @@ export class AgentInstance {
       engine: this.config.engine?.type || 'nano-pencil',
       memory: this.config.memory || { mode: 'short-term', maxTurns: 20 },
       hasSoul: !!this.config.soul?.systemPrompt,
+      // Surface the resolved agentDir so operators can confirm multi-pencil
+      // isolation works (each instance points at its own ~/.pencils/<id>/).
+      // Sensitive only insofar as it's a filesystem path; not auth material.
+      agentDir: this.config.agentDir,
       createdAt: this.createdAt,
       updatedAt: this.updatedAt,
     };

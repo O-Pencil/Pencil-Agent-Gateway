@@ -211,6 +211,14 @@ export class NanoPencilEngineAdapter implements EngineAdapter {
    * appropriate for the "short-term" memory mode this config exposes.
    */
   private memoryMaxTurns?: number;
+  /**
+   * Per-instance nano-pencil agentDir. Resolved at construction so that two
+   * AgentInstances on the same Gateway process can each point at their own
+   * `~/.pencils/<id>/` (auth.json, models.json, settings.json). Defaults to
+   * the SDK's process-global getAgentDir() when the operator didn't override
+   * it via AgentConfig.agentDir. See issue 0012 for context.
+   */
+  private agentDir: string;
   private sessions = new Map<string, SessionEntry>();
 
   // Lazy: only allocated for byo-key mode.
@@ -228,6 +236,10 @@ export class NanoPencilEngineAdapter implements EngineAdapter {
     this.mode = this.apiKey ? 'byo-key' : 'inherited';
     this.soulPrompt = composeSoulPrompt(config);
     this.memoryMaxTurns = config.memory?.maxTurns;
+    // config.agentDir is normalised by loadConfig() to an absolute path. Direct
+    // POSTs from Asgard etc. that bypass loadConfig() may still pass undefined,
+    // in which case we keep falling back to the SDK's process-global default.
+    this.agentDir = config.agentDir ?? getAgentDir();
 
     logger.debug('NanoPencilEngineAdapter created', {
       mode: this.mode,
@@ -235,6 +247,7 @@ export class NanoPencilEngineAdapter implements EngineAdapter {
       model: this.modelName,
       hasSoul: !!this.soulPrompt,
       memoryMaxTurns: this.memoryMaxTurns,
+      agentDir: this.agentDir,
     });
   }
 
@@ -263,6 +276,11 @@ export class NanoPencilEngineAdapter implements EngineAdapter {
     this.mode = this.apiKey ? 'byo-key' : 'inherited';
     this.soulPrompt = composeSoulPrompt(config);
     this.memoryMaxTurns = config.memory?.maxTurns;
+    // agentDir change is treated as a credential change below — switching
+    // <agentDir>/auth.json swaps the entire credential surface, so any cached
+    // BYO registry built against the old dir would be stale.
+    const prevAgentDir = this.agentDir;
+    this.agentDir = config.agentDir ?? getAgentDir();
 
     // Custom-provider config changes invalidate the BYO registry too — the
     // registered baseUrl / model list are baked into the in-memory registry,
@@ -275,6 +293,7 @@ export class NanoPencilEngineAdapter implements EngineAdapter {
       prevMode !== this.mode ||
       prevProvider !== this.provider ||
       prevApiKey !== this.apiKey ||
+      prevAgentDir !== this.agentDir ||
       customConfigChanged;
     if (credentialChanged) {
       this.byoAuthStorage = undefined;
@@ -308,7 +327,7 @@ export class NanoPencilEngineAdapter implements EngineAdapter {
       // and auth.json are correct. Pinning agentDir here keeps the BYO-key
       // and explicit-provider branches' behaviour, and gives the implicit
       // branch the same view the local nanopencil CLI sees.
-      agentDir: getAgentDir(),
+      agentDir: this.agentDir,
       enableSoul: false,
       enableMCP: false,
       silent: true,
@@ -322,7 +341,7 @@ export class NanoPencilEngineAdapter implements EngineAdapter {
     // soul.systemPrompt — we only need the system-prompt slot.
     if (this.soulPrompt) {
       opts.resourceLoader = new DefaultResourceLoader({
-        agentDir: getAgentDir(),
+        agentDir: this.agentDir,
         systemPrompt: this.soulPrompt,
         // Skip filesystem discovery of skills/prompts/themes — Gateway agents
         // are headless. Without these flags the loader scans ~/.nanopencil and
@@ -446,7 +465,10 @@ export class NanoPencilEngineAdapter implements EngineAdapter {
     //      config didn't pin a provider/name. This mirrors how the CLI resolves
     //      its startup model and surfaces clear errors when settings are
     //      incomplete, instead of bubbling up an unhelpful "No model selected".
-    const agentDir = getAgentDir();
+    //
+    // agentDir is per-instance (issue 0012); two pencils on the same Gateway
+    // process can each point at their own ~/.pencils/<id>/ tree.
+    const agentDir = this.agentDir;
     // AuthStorage.create() expects the path to auth.json itself, NOT the
     // agentDir. Passing the directory makes FileAuthStorageBackend treat the
     // dir as a file, silently ending up with an empty storage and surfacing

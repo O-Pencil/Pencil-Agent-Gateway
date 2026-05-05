@@ -1,6 +1,7 @@
 {
   "_comment_naming": "Folder name = persona slot (NOT a channel name). See pencils/README.md.",
   "_comment_ports": "Each pencil reserves Gateway port (18080+) and channel port (18090+). Bump for each new slot.",
+  "_comment_storage": "Issue 0012: dataDir defaults to ~/.pencils/gateway/, agentDir to ~/.pencils/<id>/. Override only when you need a non-standard layout.",
 
   "gateway": {
     "host": "127.0.0.1",
@@ -16,11 +17,12 @@
       "allowedAgents": "*"
     }
   ],
-  "dataDir": "./data",
   "agents": [
     {
       "id": "pencil-01",
       "name": "Pencil 01 (rename me)",
+      "_comment_agentDir": "Optional override; defaults to ~/.pencils/<id>. Use ~/ prefix or absolute path. Aligned with `nanopencil` CLI's home directory so /login + /model writes go to the same place the Gateway reads.",
+      "agentDir": "~/.pencils/pencil-01",
       "soul": {
         "systemPrompt": "你是这只 pencil 的灵魂。请在此写下你的人格、风格、偏好、禁忌。",
         "styleTags": ["temperate", "succinct"]

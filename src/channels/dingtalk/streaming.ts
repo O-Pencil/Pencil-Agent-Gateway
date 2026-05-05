@@ -287,7 +287,7 @@ class ThrottledStreamPusher {
     if (this.pendingTimer) return; // a flush is already queued
 
     if (elapsed >= this.opts.intervalMs) {
-      this.flush(false).catch(() => {
+      this.flush().catch(() => {
         /* logged inside flush */
       });
       return;
@@ -296,7 +296,7 @@ class ThrottledStreamPusher {
     const wait = this.opts.intervalMs - elapsed;
     this.pendingTimer = setTimeout(() => {
       this.pendingTimer = null;
-      this.flush(false).catch(() => {
+      this.flush().catch(() => {
         /* logged inside flush */
       });
     }, wait);
@@ -343,9 +343,15 @@ class ThrottledStreamPusher {
     });
   }
 
-  private flush(force: boolean): Promise<void> {
+  /**
+   * Push the latest accumulated content if it's changed since the last push.
+   * Same-content windows are skipped — finalize() always sends its own frame
+   * regardless, so a no-op throttle window can never leave the card stuck in
+   * "inputting" state.
+   */
+  private flush(): Promise<void> {
     const content = this.latestContent;
-    if (!force && content === this.lastPushedContent) return Promise.resolve();
+    if (content === this.lastPushedContent) return Promise.resolve();
     this.lastPushAt = Date.now();
     this.lastPushedContent = content;
     // Chain pushes through `inflight` so we never have two streamCard calls
@@ -362,7 +368,11 @@ class ThrottledStreamPusher {
         }),
       )
       .catch((err) => {
-        logger.warn('DingTalk streamCard push failed', {
+        // streamCard already retries 429/5xx internally; reaching here means
+        // either non-retryable (auth/template) or retries exhausted. We log
+        // and swallow — the next throttle window will try again with newer
+        // content, and finalize() force-sends a final frame at end-of-stream.
+        logger.warn('DingTalk streamCard push failed (final attempt)', {
           outTrackId: this.opts.outTrackId,
           error: err instanceof Error ? err.message : String(err),
         });

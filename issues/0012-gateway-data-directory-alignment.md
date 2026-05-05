@@ -3,8 +3,29 @@
 ## 状态
 
 - **创建日期**: 2026-05-03
+- **决策日期**: 2026-05-04（采用方案 A，agentDir/dataDir 显式化已落地）
 - **优先级**: 高
 - **标签**: architecture, data-storage, cloud-deployment
+
+## 决策摘要（2026-05-04）
+
+| 待确认问题 | 决策 |
+|---|---|
+| Agent 数据归属 | **方案 A**：每个 PencilAgent 默认 `agentDir = ~/.pencils/<config.id>`，与 nano-pencil CLI 同源；Gateway 元数据 `dataDir` 默认 `~/.pencils/gateway/`。 |
+| 创建 Agent 方式 | **维持 HTTP API**（POST /v1/agents）。CLI 驱动作为可选——`AgentConfig.agentDir` 可指向已有 nano-pencil home。 |
+| 云端下发 Soul | 暂不在本 issue 范围；当前先确保本地隔离正确。 |
+| 临时项目内 data | **不再使用**——`./data` 改为 `~/.pencils/gateway/`。`pencils/<name>/data/` 不再被脚本预创建。 |
+
+## 实现要点（已合并）
+
+- `AgentConfig.agentDir?: string` 新字段。`loadConfig()` 在装载阶段做 `~/` 展开 + 相对于 config 文件目录解析；缺省回退到 `NANOPENCIL_CODING_AGENT_DIR` env，再回退到 `~/.pencils/<config.id>`。
+- `dataDir` 同样的解析规则；缺省 `~/.pencils/gateway/`。
+- `NanoPencilEngineAdapter` 持有 per-instance `this.agentDir`，所有 `getAgentDir()` 调用点改用实例字段——多 pencil 同进程不再被 SDK 进程级单例阻塞。
+- `start-pencil.sh`：`NANOPENCIL_CODING_AGENT_DIR` 从必填降为可选；删掉之前那段「看起来像 Gateway 仓库目录就拒启」的启发式守卫（现在路径决策在代码里强约束）。
+- `pencils/.example/config.json`：移除 `dataDir: "./data"`；`agents[0]` 增加 `agentDir: "~/.pencils/pencil-01"` 作为文档示例。
+- `GET /v1/agents` 响应新增 `agentDir` 字段，运维可直接核验隔离是否生效。
+
+测试覆盖：`src/config.test.ts`（8 条）+ `src/util/paths.test.ts`（7 条）全过。
 
 ---
 
@@ -160,10 +181,10 @@ DATA_DIR=~/.pencils/gateway npm run dev
 
 ## 待确认
 
-1. [ ] Agent 数据归属：方案 A 还是方案 B？
-2. [ ] 创建 Agent 方式：HTTP API 还是 CLI 驱动？
-3. [ ] 云端下发 Soul 的优先级：高/中/低
-4. [ ] 当前是否需要先让 editor-gateway 跑通最小链路（暂时用项目内 data 目录）？
+1. [x] Agent 数据归属：**方案 A**（已落地 2026-05-04）。
+2. [x] 创建 Agent 方式：**维持 HTTP API**（已落地）。
+3. [ ] 云端下发 Soul 的优先级：另立 issue 跟踪。
+4. [x] editor-gateway 最小链路：当前已能跑通（默认目录已对齐 `~/.pencils/`）。
 
 ---
 
