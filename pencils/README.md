@@ -53,20 +53,26 @@ Pencil-Agent-Gateway/
     ├── README.md              ← this file (committed)
     ├── .example/              ← templates (committed)
     │   └── config.json
-    ├── pencil-01/             ← real instance (gitignored)
-    │   ├── config.json        ← GATEWAY_CONFIG for this pencil
-    │   └── data/              ← Gateway registry persistence (DATA_DIR)
+    ├── pencil-01/             ← real instance (gitignored) — Gateway-side config slot
+    │   └── config.json        ← GATEWAY_CONFIG for this pencil
     └── pencil-02/             ← another instance (gitignored)
         └── ...
 
-~/.pencils/                    ← user home, gitignored to nanopencil
-├── pencil-01/                 ← NANOPENCIL_CODING_AGENT_DIR for pencil-01
-│   ├── auth.json              ← API keys (set via `nanopencil /login`)
-│   ├── settings.json
-│   ├── sessions/
-│   └── memory/
-└── pencil-02/
-    └── ...
+~/.pencils/                    ← user home (Step A layout — see docs/16-pencils-storage-layout.md)
+├── agents/                    ← engine-side state per pencil (CLI + Gateway共用)
+│   ├── pencil-01/             ← AgentConfig.agentDir for pencil-01
+│   │   ├── auth.json          ← API keys (set via `nanopencil /login`)
+│   │   ├── settings.json
+│   │   ├── models.json
+│   │   ├── sessions/
+│   │   └── memory/
+│   └── pencil-02/
+│       └── ...
+└── gateway/                   ← Gateway元数据 (default dataDir)
+    └── agents/<id>.json       ← AgentRegistry persistence
+
+# 兼容：env 别名 NANOPENCIL_HOME / NANOPENCIL_CODING_AGENT_DIR 仍可用。
+# 兼容：pre-Step-A 用户的 ~/.pencils/<id>/ 数据自动检测+保留 + warning，等 `pencils migrate` 上线后再迁。
 ```
 
 ---

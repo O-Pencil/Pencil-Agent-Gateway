@@ -489,7 +489,7 @@ nanoPencil 现有的 `extensions/defaults/team/` 与 Pencil-Agent-Gateway 在概
 
 | 项目 | 责任仓库 | 改动 | 阻塞依赖 |
 |---|---|---|---|
-| **`PENCILS_HOME` env + `~/.pencils/` 根** | **Gateway** | `loadConfig` 默认根从 `~/.pencils/` 改成 `~/.pencils/agents/<id>/`；`dataDir` 缺省到 `~/.pencils/gateway/registry`（带 `registry` 子目录）；新增 `PENCILS_HOME` / `PENCILS_AGENTS_DIR` / `PENCILS_GATEWAY_DIR` 解析；`NANOPENCIL_HOME` / `NANOPENCIL_CODING_AGENT_DIR` 兼容别名 | 无（独立做即可）|
+| **`PENCILS_HOME` env + `~/.pencils/agents/<id>/` 根** | **Gateway** | ✅ **Step A 已落地（2026-05-04）**：`agentDir` 默认 `$PENCILS_AGENTS_DIR/<id>`（即 `~/.pencils/agents/<id>/`）；`dataDir` 默认 `$PENCILS_GATEWAY_DIR`（`~/.pencils/gateway/`，registry 子目录化推迟到 Step C 与迁移工具一起做）；`PENCILS_HOME` / `PENCILS_AGENTS_DIR` / `PENCILS_GATEWAY_DIR` 解析就绪；`NANOPENCIL_HOME` / `NANOPENCIL_CODING_AGENT_DIR` 兼容别名；pre-Step-A 用户的 `~/.pencils/<id>/` 旧布局**自动检测+保留+警告**，避免 upgrade 后丢数据 | 无 |
 | **AgentConfig.agentDir 已落** | **Gateway** | 已合并（issue 0012 落地）。第二轮把默认值从 `~/.pencils/<id>` 改成 `~/.pencils/agents/<id>` | 上一行 |
 | **Workspace 字段** | **Gateway** | `AgentConfig` / `ChannelRoute` 增加 `workspaceId?: string`；`buildSessionOptions` 把 `workspaces/<id>/` 信息传给引擎；`/v1/agents/adopt` 接收云端包时支持指定 workspace | nanoPencil 接受 workspaceId 参数后才闭环 |
 | **错误信息里的 agentDir 提示** | **Gateway** | `nano-adapter.ts` 错误信息里 hint `nanopencil /login` 时把路径改成 `~/.pencils/agents/<id>/`；`channels/app.ts:108` 同 | 上面两行落地后顺手 |

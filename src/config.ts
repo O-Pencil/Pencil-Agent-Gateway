@@ -116,15 +116,15 @@ export interface AgentConfig {
   /**
    * Per-agent nano-pencil install root. Used by NanoPencilEngineAdapter as
    * the agentDir (auth.json, models.json, settings.json, sessions/). Resolved
-   * via:
+   * (Step A onwards) via:
    *   1. this field (after `~` expansion + relative-to-config resolution)
    *   2. process.env.NANOPENCIL_CODING_AGENT_DIR if this field is unset
-   *   3. `~/.pencils/<config.id>` as the final fallback
+   *   3. legacy `~/.pencils/<config.id>/` if it has real data and the new
+   *      default doesn't exist yet (one-time migration grace; warning logged)
+   *   4. `$PENCILS_AGENTS_DIR/<config.id>` (default `~/.pencils/agents/<config.id>`)
    *
-   * Issue 0012: making this explicit lets multiple PencilAgents coexist in a
-   * single Gateway process (each with its own agentDir). It also removes the
-   * silent "wrong env → wrong persona" footgun that the start-pencil.sh
-   * heuristic was patching.
+   * See docs/16-pencils-storage-layout.md §3 for the env hierarchy
+   * (PENCILS_HOME / PENCILS_AGENTS_DIR / PENCILS_GATEWAY_DIR) and §10 Step A.
    *
    * Supports `~/` prefix; relative paths resolve against the config file's
    * directory (or process.cwd() when loaded from env-only fallback).
@@ -310,7 +310,7 @@ export function loadConfig(configPath?: string): GatewayConfig {
     logger.warn('No API keys configured. At least one API key is recommended.');
   }
 
-  // Issue 0012 — `dataDir` and per-agent `agentDir` resolution.
+  // Issue 0012 / doc 16 Step A — `dataDir` and per-agent `agentDir` resolution.
   //
   // Why this lives here instead of "wherever it gets used":
   //   Both fields are user-facing config knobs that mean different things at
@@ -319,45 +319,128 @@ export function loadConfig(configPath?: string): GatewayConfig {
   //   absolute path and removes the cwd / config-relative ambiguity that the
   //   start-pencil.sh heuristic was patching.
   //
-  //   Resolution rules:
+  //   Env hierarchy (Step A; see docs/16-pencils-storage-layout.md §3):
+  //     PENCILS_HOME         → ~/.pencils                 (root override; alias: NANOPENCIL_HOME)
+  //     PENCILS_AGENTS_DIR   → $PENCILS_HOME/agents       (where individual pencils live)
+  //     PENCILS_GATEWAY_DIR  → $PENCILS_HOME/gateway      (Gateway-process metadata)
+  //
+  //   Resolution rules (per field):
   //     - `~/` prefix → user home (cross-platform)
-  //     - Relative paths → resolved against the directory containing the
-  //       config file. Loading via env-only fallback uses cwd as base.
-  //     - Default `dataDir`        → `~/.pencils/gateway` (issue 0012 plan A:
-  //       gateway state + nano-pencil agent state under the same `~/.pencils`
-  //       tree, distinct subfolders).
-  //     - Default agent `agentDir` → `~/.pencils/<config.id>` so a given
-  //       PencilAgent's gateway+CLI state share the same folder name.
-  //   Env-var fallback for agentDir keeps the legacy
-  //   `NANOPENCIL_CODING_AGENT_DIR` path working when set; once set on the
-  //   AgentConfig, the env var is no longer consulted for that agent.
+  //     - Relative paths in config.json → resolved against the directory of
+  //       the config file. Env-only fallback uses cwd as base.
+  //     - Default `dataDir`        → $PENCILS_GATEWAY_DIR (`~/.pencils/gateway`)
+  //     - Default agent `agentDir` → $PENCILS_AGENTS_DIR/<id> (`~/.pencils/agents/<id>`)
+  //
+  //   Legacy fallback (conservative — Q4 in doc 16 §1):
+  //   Pre-Step-A users had agents living at `~/.pencils/<id>/` (no `agents/`
+  //   middle layer). To avoid silent data orphaning on upgrade, when the new
+  //   default path is missing AND the legacy path has real data
+  //   (auth.json / settings.json / models.json present), we keep using the
+  //   legacy path and emit a deprecation warning telling the user to run
+  //   `pencils migrate` (Step C, future). NEW agents created after Step A
+  //   land directly in the new location.
+  //
+  //   Per-agent resolution order:
+  //     1. agent.agentDir explicit → use it
+  //     2. NANOPENCIL_CODING_AGENT_DIR env → use it (legacy CLI single-agent slot)
+  //     3. legacy ~/.pencils/<id>/ has real data + new path empty → use legacy + warn
+  //     4. default $PENCILS_AGENTS_DIR/<id>
   const configBaseDir = existsSync(configFilePath) ? dirname(configFilePath) : process.cwd();
-  const defaultDataDir = join(homedir(), '.pencils', 'gateway');
-  const rawDataDir = config.dataDir ?? defaultDataDir;
+  const pencilsHome = resolvePencilsHome();
+  const pencilsAgentsDir = resolvePencilsAgentsDir(pencilsHome);
+  const pencilsGatewayDir = resolvePencilsGatewayDir(pencilsHome);
+
+  const rawDataDir = config.dataDir ?? pencilsGatewayDir;
   config.dataDir = resolveAgainst(configBaseDir, rawDataDir);
 
   for (const agent of config.agents ?? []) {
     if (!agent.id) continue;
-    const explicit = agent.agentDir?.trim();
-    const fromEnv = process.env.NANOPENCIL_CODING_AGENT_DIR?.trim();
-    const resolved = explicit
-      ? resolveAgainst(configBaseDir, explicit)
-      : fromEnv
-        ? expandHome(fromEnv)
-        : join(homedir(), '.pencils', agent.id);
-    agent.agentDir = resolved;
+    agent.agentDir = resolveAgentDir(agent.id, agent.agentDir, configBaseDir, pencilsAgentsDir, pencilsHome);
   }
 
   logger.info('Configuration loaded successfully', {
     host: config.gateway.host,
     port: config.gateway.port,
     logLevel: config.gateway.logLevel,
+    pencilsHome,
+    pencilsAgentsDir,
+    pencilsGatewayDir,
     dataDir: config.dataDir,
     apiKeysCount: config.apiKeys.length,
     agents: config.agents?.map((a) => ({ id: a.id, agentDir: a.agentDir })) ?? [],
   });
 
   return config;
+}
+
+/**
+ * Resolve `PENCILS_HOME`. Honours legacy alias `NANOPENCIL_HOME`. `~` is expanded.
+ * Default `~/.pencils`.
+ */
+function resolvePencilsHome(): string {
+  const explicit = process.env.PENCILS_HOME?.trim() || process.env.NANOPENCIL_HOME?.trim();
+  if (explicit) return expandHome(explicit);
+  return join(homedir(), '.pencils');
+}
+
+function resolvePencilsAgentsDir(pencilsHome: string): string {
+  const explicit = process.env.PENCILS_AGENTS_DIR?.trim();
+  if (explicit) return expandHome(explicit);
+  return join(pencilsHome, 'agents');
+}
+
+function resolvePencilsGatewayDir(pencilsHome: string): string {
+  const explicit = process.env.PENCILS_GATEWAY_DIR?.trim();
+  if (explicit) return expandHome(explicit);
+  return join(pencilsHome, 'gateway');
+}
+
+/**
+ * Decide whether a path that exists on disk holds real PencilAgent data
+ * worth preserving. Looks for the canonical files nano-pencil writes —
+ * an empty/leftover folder will return false, avoiding spurious legacy
+ * fallbacks on machines that had `mkdir -p ~/.pencils/<id>` for some other
+ * reason.
+ */
+function hasLegacyAgentData(p: string): boolean {
+  if (!existsSync(p)) return false;
+  return (
+    existsSync(join(p, 'auth.json')) ||
+    existsSync(join(p, 'settings.json')) ||
+    existsSync(join(p, 'models.json'))
+  );
+}
+
+function resolveAgentDir(
+  id: string,
+  explicit: string | undefined,
+  configBaseDir: string,
+  pencilsAgentsDir: string,
+  pencilsHome: string,
+): string {
+  const trimmed = explicit?.trim();
+  if (trimmed) return resolveAgainst(configBaseDir, trimmed);
+
+  const fromEnv = process.env.NANOPENCIL_CODING_AGENT_DIR?.trim();
+  if (fromEnv) return expandHome(fromEnv);
+
+  const newDefault = join(pencilsAgentsDir, id);
+  const legacy = join(pencilsHome, id);
+
+  // Conservative fallback: if the user set up this agent under the pre-Step-A
+  // layout (~/.pencils/<id>/) and hasn't migrated yet, keep using it but
+  // surface a one-time warning. New installs land at the new default.
+  if (!existsSync(newDefault) && hasLegacyAgentData(legacy)) {
+    logger.warn(
+      'Detected legacy agent storage at the pre-Step-A layout. Falling back to it ' +
+        'so existing auth/sessions are not orphaned. Run `pencils migrate` (Step C) ' +
+        'to move it under <agents>/<id>/ when convenient.',
+      { agentId: id, legacyPath: legacy, newPath: newDefault },
+    );
+    return legacy;
+  }
+
+  return newDefault;
 }
 
 /**
