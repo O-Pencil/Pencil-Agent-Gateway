@@ -1,13 +1,22 @@
 ---
 title: nanoPencil 多 Agent 改造影响面评估（Step B）
-status: design
+status: archived
 scope: nanopencil-source-impact-evaluation
 owner: pencil-agent-gateway maintainers
 created: 2026-05-05
-updated: 2026-05-05
+updated: 2026-05-06
+archivedBecause: 内容已合并到 nanoPencil/docs/multi-agent-fs-design.md §9
 ---
 
 # nanoPencil 多 Agent 改造影响面评估（Step B）
+
+> ⚠️ **此文档已归档**（2026-05-06）。
+>
+> 本文的源码分析、PR 拆分清单、测试矩阵等内容已合并到核心文档
+> [`nanoPencil/docs/multi-agent-fs-design.md`](../../nanoPencil/docs/multi-agent-fs-design.md) §9–§11。
+> 修正后的 callsite 数据（34/53/47 而非原文的 72）也在核心文档中更新。
+>
+> 本文档保留为历史记录，不再更新。
 
 ## DIP Metadata
 

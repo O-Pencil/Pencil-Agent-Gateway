@@ -31,6 +31,8 @@
 | `11-containerized-deployment.md` | Docker/K8s deployment | ✅ Complete |
 | `13-channel-integration.md` | Stage-one DingTalk/WeChat/Feishu channel wrapper boundary | ✅ Complete |
 | `14-editor-gateway-minimal-integration.md` | Minimal editor-to-Gateway integration without Asgard | ✅ Complete |
+| `16-pencils-storage-layout.md` | Gateway-side action plan for multi-agent storage | ✅ Current |
+| `17-nanopencil-multi-agent-impact-eval.md` | Step B evaluation (archived — merged into core doc) | 📦 Archived |
 | `README.md` | Docs index | ✅ Complete |
 
 ---
@@ -55,6 +57,7 @@
 
 ### Implementation
 - `07-m7-nano-pencil-integration.md` — nano-pencil SDK usage
+- `16-pencils-storage-layout.md` — Gateway-side action plan for multi-agent storage
 - `08-asgard-editor-end-to-end.md` — Full integration flow
 - `11-containerized-deployment.md` — Deployment guide
 
