@@ -279,3 +279,54 @@ describe('AgentRegistry', () => {
     expect(registry.getAll()).toHaveLength(0);
   });
 });
+
+describe('Agent ID validation (G2)', () => {
+  let registry: AgentRegistry;
+
+  beforeEach(() => {
+    cleanTestDataDir();
+    registry = new AgentRegistry(TEST_DATA_DIR);
+  });
+
+  afterEach(() => {
+    cleanTestDataDir();
+  });
+
+  const invalidIds = [
+    { id: '韩寒', reason: 'Chinese characters' },
+    { id: 'UPPERCASE', reason: 'uppercase letters' },
+    { id: 'has spaces', reason: 'spaces' },
+    { id: 'a/b', reason: 'path separator' },
+    { id: '', reason: 'empty string' },
+    { id: '.hidden', reason: 'starts with dot' },
+    { id: '-dash', reason: 'starts with dash' },
+    { id: 'x'.repeat(65), reason: 'exceeds 64 chars' },
+    { id: 'emoji🚀', reason: 'emoji' },
+  ];
+
+  for (const { id, reason } of invalidIds) {
+    it(`register() rejects '${reason}'`, async () => {
+      await expect(
+        registry.register(makeAgentConfig({ id })),
+      ).rejects.toThrow(/Invalid agent id/);
+    });
+  }
+
+  const validIds = [
+    'default',
+    'pencil-01',
+    'a',
+    'my_agent',
+    'test.agent.v2',
+    'x'.repeat(64),
+    '123',
+    'a1b2c3',
+  ];
+
+  for (const id of validIds) {
+    it(`register() accepts '${id.length > 20 ? id.slice(0, 20) + '...' : id}'`, async () => {
+      const inst = await registry.register(makeAgentConfig({ id }));
+      expect(inst.id).toBe(id);
+    });
+  }
+});

@@ -14,6 +14,7 @@ import { fileURLToPath } from 'node:url';
 import { InvalidRequestError } from './util/errors.js';
 import { logger } from './util/logger.js';
 import { expandHome, resolveAgainst } from './util/paths.js';
+import { validateAgentId } from './agent/registry.js';
 import type { ChannelsConfig } from './channels/types.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -356,6 +357,23 @@ export function loadConfig(configPath?: string): GatewayConfig {
   for (const agent of config.agents ?? []) {
     if (!agent.id) continue;
     agent.agentDir = resolveAgentDir(agent.id, agent.agentDir, configBaseDir, pencilsAgentsDir, pencilsHome);
+  }
+
+  // G2: Validate agent IDs at config load time — fail-fast on startup
+  // if any configured agent has an illegal slug (non-ASCII, too long, etc.).
+  // Runtime registration (POST /v1/agents) validates in AgentRegistry.register().
+  for (const agent of config.agents ?? []) {
+    if (!agent.id) {
+      logger.warn('Agent config entry missing "id" — skipping');
+      continue;
+    }
+    try {
+      validateAgentId(agent.id);
+    } catch (err) {
+      throw new InvalidRequestError(
+        `Configured agent has invalid id '${agent.id}': ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
   }
 
   logger.info('Configuration loaded successfully', {

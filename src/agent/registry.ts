@@ -15,6 +15,24 @@ import { logger } from '../util/logger.js';
 import { type EngineAdapter } from '../engine/adapter.js';
 import { createNanoPencilAdapter } from '../engine/nano-adapter.js';
 
+/**
+ * Agent ID must be an ASCII slug: lowercase alphanumeric start, [a-z0-9._-],
+ * length 1–64. Used as filesystem directory name, Gateway route modelId,
+ * and Asgard cross-system key. displayName handles human-readable names.
+ *
+ * See nanoPencil/docs/multi-agent-fs-design.md §4.1.
+ */
+const AGENT_ID_RE = /^[a-z0-9][a-z0-9._-]{0,63}$/;
+
+export function validateAgentId(id: string): void {
+  if (!AGENT_ID_RE.test(id)) {
+    throw new InvalidRequestError(
+      `Invalid agent id '${id}'. Must match /^[a-z0-9][a-z0-9._-]{0,63}$/. ` +
+      `Use ASCII slug for id; Chinese/emoji names go in the 'name' field.`,
+    );
+  }
+}
+
 interface DisposableEngine extends EngineAdapter {
   dispose?: () => Promise<void> | void;
 }
@@ -164,8 +182,16 @@ export class AgentRegistry {
           const filePath = join(agentsDir, file);
           const content = readFileSync(filePath, 'utf-8');
           const config = JSON.parse(content) as AgentConfig;
-          await this.register(config);
-          logger.info('Loaded agent from file', { id: config.id, file });
+          try {
+            await this.register(config);
+            logger.info('Loaded agent from file', { id: config.id, file });
+          } catch (err) {
+            logger.error('Skipping invalid agent config', {
+              file,
+              id: config.id,
+              error: err instanceof Error ? err.message : String(err),
+            });
+          }
         }
       }
     } catch (err) {
@@ -181,6 +207,7 @@ export class AgentRegistry {
    * the old instance leaks (issue 0007).
    */
   async register(config: AgentConfig): Promise<AgentInstance> {
+    validateAgentId(config.id);
     const previous = this.instances.get(config.id);
     if (previous) {
       logger.debug('Replacing existing agent — disposing old engine', { id: config.id });
@@ -330,7 +357,14 @@ export class AgentRegistry {
         logger.warn('Skipping agent config without id');
         continue;
       }
-      await this.register(config);
+      try {
+        await this.register(config);
+      } catch (err) {
+        logger.error('Skipping invalid agent config', {
+          id: config.id,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
     }
   }
 }
