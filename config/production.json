@@ -1,0 +1,47 @@
+{
+  "_comment_purpose": "Production/standalone config for hosting one or more PencilAgents behind a public Gateway. Designed to be schema-compatible with Asgard's POST /v1/agents body — when this Gateway is later managed by Asgard, the agents[] array becomes redundant (Asgard pushes them via HTTP instead) but the rest stays unchanged.",
+  "_comment_secrets": "Sensitive values use env interpolation (see API_KEY and PROVIDER_API_KEY below). API_KEY is the caller's auth (set per deploy). PROVIDER_API_KEY is the upstream LLM key (DashScope sk-sp-... / MiniMax sk-cp-... / etc).",
+
+  "gateway": {
+    "host": "0.0.0.0",
+    "port": 7878,
+    "logLevel": "info",
+    "corsOrigins": "*",
+    "requestTimeoutMs": 120000
+  },
+
+  "apiKeys": [
+    {
+      "key": "${API_KEY}",
+      "label": "owner",
+      "allowedAgents": "*"
+    }
+  ],
+
+  "agents": [
+    {
+      "id": "default",
+      "name": "Pencil",
+      "soul": {
+        "systemPrompt": "你是 Pencil，一个温和、克制、不啰嗦的写作与思考伙伴。回答中文。保持短句，避免堆砌形容词。",
+        "styleTags": ["zh-cn", "minimalist"]
+      },
+      "memory": {
+        "mode": "short-term",
+        "maxTurns": 32
+      },
+      "model": {
+        "provider": "minimax-coding",
+        "name": "MiniMax-M2.5",
+        "apiKey": "${PROVIDER_API_KEY}"
+      },
+      "engine": {
+        "type": "nano-pencil"
+      }
+    }
+  ],
+
+  "channels": {
+    "enabled": false
+  }
+}
