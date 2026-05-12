@@ -3,7 +3,7 @@
   "_comment_secrets": "Sensitive values use env interpolation (see API_KEY and PROVIDER_API_KEY below). API_KEY is the caller's auth (set per deploy). PROVIDER_API_KEY is the upstream LLM key (DashScope sk-sp-... / MiniMax sk-cp-... / etc).",
 
   "gateway": {
-    "host": "0.0.0.0",
+    "host": "127.0.0.1",
     "port": 7878,
     "logLevel": "info",
     "corsOrigins": "*",
