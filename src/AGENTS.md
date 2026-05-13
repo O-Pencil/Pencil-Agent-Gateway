@@ -70,7 +70,7 @@ src/
 
 | File | Responsibility | Key Exports |
 |------|----------------|-------------|
-| `config.ts` | Config loading from JSON/env, validation, interpolation | `loadConfig()`, `getConfig()`, `GatewayConfig` |
+| `config.ts` | Config loading from JSON/env, validation, interpolation; `AgentConfig` shape including `kind` / `parentTemplateId` / `origin` for SuperAgent / Derived / Custom classification (doc 16 §10.4 P1) | `loadConfig()`, `getConfig()`, `GatewayConfig`, `AgentConfig`, `AgentKind`, `AgentOriginMetadata` |
 
 ### Routes (HTTP Layer)
 
@@ -94,7 +94,7 @@ src/
 
 | File | Responsibility | Key Exports |
 |------|----------------|-------------|
-| `agent/registry.ts` | Agent instance lifecycle, persistence, model ID mapping | `AgentRegistry`, `AgentInstance`, `getRegistry()` |
+| `agent/registry.ts` | Agent instance lifecycle, persistence, model ID mapping, `<agentDir>/agent.json` metadata write (with kind/origin/parentTemplateId per doc 16 §11.2.1) | `AgentRegistry`, `AgentInstance`, `getRegistry()`, `validateAgentId()` |
 
 ### Authentication
 

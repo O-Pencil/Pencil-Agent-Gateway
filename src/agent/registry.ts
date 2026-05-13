@@ -403,20 +403,28 @@ export class AgentRegistry {
       }
     }
 
-    const metadata = {
+    // P1 (doc 16 §7.5): use the classification the caller provided. Falls
+    // back to 'custom' / { type: 'local' } so direct CLI / config-file
+    // registration (which doesn't go through Asgard) still produces a
+    // well-formed agent.json. P3 will read these values back to enforce
+    // soul-policy on writes.
+    const kind = config.kind ?? 'custom';
+    const origin = config.origin ?? { type: 'local' };
+
+    const metadata: Record<string, unknown> = {
       version: '1.0.0',
       id: config.id,
       displayName: config.name ?? config.id,
       createdAt,
       updatedAt: now,
-      // P0: default to 'custom' until Asgard schema delivers a kind field
-      // (roadmap P1). SuperAgent / DerivedAgent classification + soul_policy
-      // enforcement come in P1–P3.
-      kind: 'custom',
-      origin: { type: 'local' },
+      kind,
+      origin,
       engine: config.engine?.type ?? 'nano-pencil',
       extensions: {},
     };
+    if (config.parentTemplateId !== undefined) {
+      metadata.parentTemplateId = config.parentTemplateId;
+    }
 
     writeFileSync(metadataPath, JSON.stringify(metadata, null, 2), 'utf-8');
   }

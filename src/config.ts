@@ -100,6 +100,36 @@ export interface EngineConfig {
 }
 
 /**
+ * Agent classification (doc 16 §7.5 / multi-agent-fs-design v2.3).
+ *
+ * - super:   Platform / vendor-distributed immutable template. Soul is locked.
+ * - derived: User-personalised copy of a super (parentTemplateId is set).
+ * - custom:  User-from-scratch agent. No parent.
+ *
+ * Defaults to 'custom' when unset — covers legacy clients that haven't been
+ * upgraded to send the new field. P3 will enforce soul-policy semantics on
+ * the Gateway side; today we just persist the classifier.
+ */
+export type AgentKind = 'super' | 'derived' | 'custom';
+
+/**
+ * Identity of the system that originally created this agent. Written through
+ * to <agentDir>/agent.json so nanoPencil CLI / future tooling can answer
+ * "where did this pencil come from?" without reading Gateway state.
+ *
+ * `type` values today:
+ *   - 'local'  — created on this Gateway directly (CLI / config file)
+ *   - 'asgard' — synced down from an Asgard tenant (carries asgardAgentId /
+ *                ownerUserUuid for cross-system reconciliation)
+ */
+export interface AgentOriginMetadata {
+  type: 'local' | 'asgard' | string;
+  asgardAgentId?: string;
+  ownerUserUuid?: string;
+  [extra: string]: unknown;
+}
+
+/**
  * Agent configuration
  */
 export interface AgentConfig {
@@ -114,6 +144,20 @@ export interface AgentConfig {
    */
   model?: ModelConfig;
   engine?: EngineConfig;
+  /**
+   * doc 16 §7.5 — classification. Defaults to 'custom' if absent.
+   */
+  kind?: AgentKind;
+  /**
+   * When kind=derived, the id of the SuperAgent this was forked from.
+   * Application-layer reference (no FK across the Gateway/Asgard boundary).
+   */
+  parentTemplateId?: number;
+  /**
+   * Provenance metadata persisted in <agentDir>/agent.json. Defaults to
+   * { type: 'local' } if absent.
+   */
+  origin?: AgentOriginMetadata;
   /**
    * Per-agent nano-pencil install root. Used by NanoPencilEngineAdapter as
    * the agentDir (auth.json, models.json, settings.json, sessions/). Resolved
