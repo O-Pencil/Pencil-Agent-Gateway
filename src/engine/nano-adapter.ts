@@ -332,6 +332,14 @@ export class NanoPencilEngineAdapter implements EngineAdapter {
       // and explicit-provider branches' behaviour, and gives the implicit
       // branch the same view the local nanopencil CLI sees.
       agentDir: this.agentDir,
+      // P0.5 (doc 16 §10.4): pin cwd to the agent's own dir so the SDK's
+      // DefaultResourceLoader doesn't fall through to `process.cwd()` and
+      // pick up the Gateway *repo*'s AGENTS.md/CLAUDE.md as "project
+      // context", polluting every Agent's system prompt with the wrong
+      // identity. With cwd === agentDir, only the agent's own .PENCIL.md
+      // (if any) gets loaded, which is the correct per-agent scope for a
+      // headless HTTP gateway.
+      cwd: this.agentDir,
       enableSoul: false,
       enableMCP: false,
       silent: true,
@@ -343,9 +351,23 @@ export class NanoPencilEngineAdapter implements EngineAdapter {
     // prompt. enableSoul stays false because the SDK's "Soul" feature is the
     // personality-evolution system, not the same thing as Gateway's
     // soul.systemPrompt — we only need the system-prompt slot.
+    //
+    // P0.5: must explicitly `await loader.reload()` here. The SDK only auto-
+    // reloads when it constructs its OWN DefaultResourceLoader (sdk.ts:307);
+    // when we pass an external loader, our `systemPrompt` field stays in
+    // `systemPromptSource` until reload() copies it to `systemPrompt`. Without
+    // reload, `getSystemPrompt()` returns undefined, agent-session falls back
+    // to the SDK's hard-coded "You are the writing assistant in nanopencil…"
+    // base template — completely overriding our Soul. The visible symptom:
+    // every Asgard-created Agent introduces itself as "nanopencil writing
+    // assistant" regardless of its configured Soul.
     if (this.soulPrompt) {
-      opts.resourceLoader = new DefaultResourceLoader({
+      const loader = new DefaultResourceLoader({
         agentDir: this.agentDir,
+        // Pin cwd to the agent's own dir so loadProjectContextFiles() doesn't
+        // walk back to process.cwd() and pull in the Gateway repo's
+        // AGENTS.md/CLAUDE.md as "project context" for every agent.
+        cwd: this.agentDir,
         systemPrompt: this.soulPrompt,
         // Skip filesystem discovery of skills/prompts/themes — Gateway agents
         // are headless. Without these flags the loader scans ~/.nanopencil and
@@ -355,6 +377,8 @@ export class NanoPencilEngineAdapter implements EngineAdapter {
         noPromptTemplates: true,
         noThemes: true,
       });
+      await loader.reload();
+      opts.resourceLoader = loader;
     }
 
     if (this.mode === 'byo-key') {
