@@ -30,6 +30,7 @@
  */
 
 import { join } from 'node:path';
+import { homedir } from 'node:os';
 
 import {
   createAgentSession,
@@ -38,7 +39,6 @@ import {
   SessionManager,
   SettingsManager,
   DefaultResourceLoader,
-  getAgentDir,
   silentLogger,
 } from '@pencil-agent/nano-pencil';
 
@@ -236,10 +236,13 @@ export class NanoPencilEngineAdapter implements EngineAdapter {
     this.mode = this.apiKey ? 'byo-key' : 'inherited';
     this.soulPrompt = composeSoulPrompt(config);
     this.memoryMaxTurns = config.memory?.maxTurns;
-    // config.agentDir is normalised by loadConfig() to an absolute path. Direct
-    // POSTs from Asgard etc. that bypass loadConfig() may still pass undefined,
-    // in which case we keep falling back to the SDK's process-global default.
-    this.agentDir = config.agentDir ?? getAgentDir();
+    // P0 (doc 16 §9.3): every Agent gets its own ~/.pencils/agents/<id>/
+    // slot. config.agentDir from loadConfig() already resolves to an absolute
+    // path for config-declared agents. Runtime POSTs (Asgard sync, /v1/agents)
+    // skip loadConfig() so we derive a per-id default here — NOT the SDK's
+    // process-global getAgentDir() which would make every Asgard agent share
+    // one mind dir.
+    this.agentDir = config.agentDir ?? join(homedir(), '.pencils', 'agents', config.id);
 
     logger.debug('NanoPencilEngineAdapter created', {
       mode: this.mode,
@@ -280,7 +283,8 @@ export class NanoPencilEngineAdapter implements EngineAdapter {
     // <agentDir>/auth.json swaps the entire credential surface, so any cached
     // BYO registry built against the old dir would be stale.
     const prevAgentDir = this.agentDir;
-    this.agentDir = config.agentDir ?? getAgentDir();
+    this.agentDir =
+      config.agentDir ?? join(homedir(), '.pencils', 'agents', config.id);
 
     // Custom-provider config changes invalidate the BYO registry too — the
     // registered baseUrl / model list are baked into the in-memory registry,

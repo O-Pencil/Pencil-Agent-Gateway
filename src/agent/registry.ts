@@ -9,6 +9,7 @@
 
 import { mkdirSync, writeFileSync, readFileSync, readdirSync, existsSync, unlinkSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+import { homedir } from 'node:os';
 import type { AgentConfig } from '../config.js';
 import { InvalidRequestError } from '../util/errors.js';
 import { logger } from '../util/logger.js';
@@ -346,6 +347,78 @@ export class AgentRegistry {
       mkdirSync(dir, { recursive: true });
     }
     writeFileSync(filePath, JSON.stringify(config, null, 2), 'utf-8');
+
+    // G3 (doc 16 §11.2.1): write the agent's canonical metadata under
+    // <agentDir>/agent.json so that nanoPencil CLI / future agent.json
+    // readers (e.g. `pencils ls`) can discover this Agent without going
+    // through Gateway's registry. The agentDir path resolution mirrors
+    // nano-adapter constructor: explicit config.agentDir wins, otherwise
+    // default to ~/.pencils/agents/<id>/.
+    //
+    // This is best-effort — a failure here doesn't roll back the registry
+    // write because the registry is the load-bearing record and agent.json
+    // is metadata for cross-tool interop.
+    try {
+      this.writeAgentMetadata(config);
+    } catch (err) {
+      logger.warn('Failed to write agent.json metadata (registry persist OK)', {
+        id: config.id,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  /**
+   * Write <agentDir>/agent.json per doc 16 §11.2.1 schema.
+   *
+   * Fields:
+   *   - id / displayName / description — for human / UI / nanoPencil ls
+   *   - createdAt / updatedAt — lifecycle
+   *   - origin.type — `local` (Gateway-created) or `cloud-adopted` (future,
+   *     when adopt flow is in)
+   *   - kind — placeholder for the super/derived/custom classification
+   *     (doc 16 §13.x design; defaults to `custom` if unset, see roadmap P1)
+   *   - engine — 'nano-pencil' as today
+   *
+   * Idempotent: re-writing an existing file with the same id is fine.
+   * `createdAt` is only set on first write (preserved on subsequent updates).
+   */
+  private writeAgentMetadata(config: AgentConfig): void {
+    const agentDir =
+      config.agentDir ?? join(homedir(), '.pencils', 'agents', config.id);
+    mkdirSync(agentDir, { recursive: true });
+
+    const metadataPath = join(agentDir, 'agent.json');
+    const now = new Date().toISOString();
+
+    let createdAt = now;
+    if (existsSync(metadataPath)) {
+      try {
+        const existing = JSON.parse(readFileSync(metadataPath, 'utf-8'));
+        if (typeof existing.createdAt === 'string') {
+          createdAt = existing.createdAt;
+        }
+      } catch {
+        // corrupt file; overwrite with fresh metadata
+      }
+    }
+
+    const metadata = {
+      version: '1.0.0',
+      id: config.id,
+      displayName: config.name ?? config.id,
+      createdAt,
+      updatedAt: now,
+      // P0: default to 'custom' until Asgard schema delivers a kind field
+      // (roadmap P1). SuperAgent / DerivedAgent classification + soul_policy
+      // enforcement come in P1–P3.
+      kind: 'custom',
+      origin: { type: 'local' },
+      engine: config.engine?.type ?? 'nano-pencil',
+      extensions: {},
+    };
+
+    writeFileSync(metadataPath, JSON.stringify(metadata, null, 2), 'utf-8');
   }
 
   /**
