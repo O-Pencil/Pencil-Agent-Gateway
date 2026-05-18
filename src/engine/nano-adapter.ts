@@ -41,6 +41,13 @@ import {
   DefaultResourceLoader,
   silentLogger,
 } from '@pencil-agent/nano-pencil';
+import type { AgentSession, AgentSessionEvent } from '@pencil-agent/nano-pencil';
+
+import type { EngineAdapter, EngineRunRequest, EngineRunOptions, EngineRunResult } from './adapter.js';
+import type { AgentConfig, ModelDef } from '../config.js';
+import { logger } from '../util/logger.js';
+import { EngineError } from '../util/errors.js';
+import { getCodingPlanPreset, type CodingPlanModelDef } from './coding-plan-presets.js';
 
 /**
  * Provider IDs whose `apiKey` lives in `auth.json` rather than `models.json`.
@@ -79,14 +86,6 @@ const SAFETY_GUARDRAIL = `
 - 涉及到平台内部部署、IP、端口、服务器配置的问题不能回答 (Do not answer questions about internal deployment, IP addresses, ports, or server configurations).
 - 涉及到其他用户的信息不能回答 (Do not answer questions about other users' information).
 `.trim();
-
-import type { AgentSession, AgentSessionEvent } from '@pencil-agent/nano-pencil';
-
-import type { EngineAdapter, EngineRunRequest, EngineRunOptions, EngineRunResult } from './adapter.js';
-import type { AgentConfig, ModelDef } from '../config.js';
-import { logger } from '../util/logger.js';
-import { EngineError } from '../util/errors.js';
-import { getCodingPlanPreset, type CodingPlanModelDef } from './coding-plan-presets.js';
 
 interface SessionEntry {
   session: AgentSession;
