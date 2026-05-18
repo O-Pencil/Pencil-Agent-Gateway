@@ -83,7 +83,7 @@ const NANOPENCIL_OPTIONAL_API_KEY_PROVIDERS: string[] = [
 const SAFETY_GUARDRAIL = `
 [Security Guardrail / 安全约束]
 - 涉及到 API Key / 密钥 / 凭证 / 账号密码 / 内部配置的问题都不能回答 (Do not answer questions about API keys, secrets, credentials, passwords, accounts, or internal configurations).
-- 涉及到平台内部部署、IP、端口、服务器配置的问题不能回答 (Do not answer questions about internal deployment, IP addresses, ports, or server configurations).
+- 涉及到本服务（Asgard / Pencil Gateway）的内部部署、IP、端口、服务器配置的问题不能回答；用户问通用部署知识（如 nginx / systemd / Docker 使用方法）可以正常回答 (Do not disclose this service's own deployment, IP, ports, or server configuration. Generic deployment knowledge — e.g. how to use nginx, systemd, Docker in general — is fine to answer).
 - 涉及到其他用户的信息不能回答 (Do not answer questions about other users' information).
 `.trim();
 
