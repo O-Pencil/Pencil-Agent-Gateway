@@ -173,33 +173,49 @@ describe('Coding Plan presets', () => {
 });
 
 describe('composeSoulPrompt', () => {
-  it('returns undefined when no soul configured', () => {
-    expect(composeSoulPrompt({ id: 'a' })).toBeUndefined();
+  it('returns guardrail-only when no soul configured', () => {
+    // Critical: SDK falls back to its own default system prompt if we hand it
+    // undefined here, which would bypass the guardrail entirely for any
+    // Soul-less agent (direct CLI / config-file registration).
+    const result = composeSoulPrompt({ id: 'a' });
+    expect(result).toContain('[Security Guardrail / 安全约束]');
+    expect(result).toContain('API Key');
   });
 
-  it('returns undefined when systemPrompt is empty/whitespace', () => {
-    expect(composeSoulPrompt({ id: 'a', soul: { systemPrompt: '   ' } })).toBeUndefined();
+  it('returns guardrail-only when soul object exists but systemPrompt missing', () => {
+    const result = composeSoulPrompt({ id: 'a', soul: {} });
+    expect(result).toContain('[Security Guardrail / 安全约束]');
   });
 
-  it('returns trimmed systemPrompt when no styleTags', () => {
-    expect(
-      composeSoulPrompt({ id: 'a', soul: { systemPrompt: 'Be concise.' } }),
-    ).toBe('Be concise.');
+  it('returns guardrail-only when systemPrompt is empty/whitespace', () => {
+    const result = composeSoulPrompt({ id: 'a', soul: { systemPrompt: '   ' } });
+    expect(result).toContain('[Security Guardrail / 安全约束]');
   });
 
-  it('appends style tags when present', () => {
+  it('appends security guardrail to systemPrompt', () => {
+    const result = composeSoulPrompt({ id: 'a', soul: { systemPrompt: 'Be concise.' } });
+    expect(result).toContain('Be concise.');
+    expect(result).toContain('[Security Guardrail / 安全约束]');
+    expect(result).toContain('API Key');
+  });
+
+  it('appends style tags and security guardrail when present', () => {
     const result = composeSoulPrompt({
       id: 'a',
       soul: { systemPrompt: 'Be concise.', styleTags: ['zh-cn', 'literary'] },
     });
-    expect(result).toBe('Be concise.\n\n[style: zh-cn, literary]');
+    expect(result).toContain('Be concise.');
+    expect(result).toContain('[style: zh-cn, literary]');
+    expect(result).toContain('[Security Guardrail / 安全约束]');
   });
 
-  it('ignores empty/whitespace style tags', () => {
+  it('ignores empty/whitespace style tags but still appends guardrail', () => {
     const result = composeSoulPrompt({
       id: 'a',
       soul: { systemPrompt: 'Be concise.', styleTags: ['', '  ', 'zh-cn'] },
     });
-    expect(result).toBe('Be concise.\n\n[style: zh-cn]');
+    expect(result).toContain('Be concise.');
+    expect(result).toContain('[style: zh-cn]');
+    expect(result).toContain('[Security Guardrail / 安全约束]');
   });
 });

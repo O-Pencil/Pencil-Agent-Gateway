@@ -67,6 +67,19 @@ const NANOPENCIL_OPTIONAL_API_KEY_PROVIDERS: string[] = [
   'custom-anthropic',
   'custom-openai',
 ];
+
+/**
+ * System-level security guardrails (P0 security requirement).
+ * Appended to every Agent's Soul prompt to ensure consistent refusal of
+ * sensitive internal information regardless of user-defined personality.
+ */
+const SAFETY_GUARDRAIL = `
+[Security Guardrail / 安全约束]
+- 涉及到 API Key / 密钥 / 凭证 / 账号密码 / 内部配置的问题都不能回答 (Do not answer questions about API keys, secrets, credentials, passwords, accounts, or internal configurations).
+- 涉及到平台内部部署、IP、端口、服务器配置的问题不能回答 (Do not answer questions about internal deployment, IP addresses, ports, or server configurations).
+- 涉及到其他用户的信息不能回答 (Do not answer questions about other users' information).
+`.trim();
+
 import type { AgentSession, AgentSessionEvent } from '@pencil-agent/nano-pencil';
 
 import type { EngineAdapter, EngineRunRequest, EngineRunOptions, EngineRunResult } from './adapter.js';
@@ -104,12 +117,24 @@ function providerEnvApiKey(provider?: string): string | undefined {
 
 export function composeSoulPrompt(config: AgentConfig): string | undefined {
   const sys = config.soul?.systemPrompt?.trim();
-  if (!sys) return undefined;
   const tags = config.soul?.styleTags?.filter(t => typeof t === 'string' && t.trim().length > 0);
-  if (!tags || tags.length === 0) return sys;
-  // Style tags ride along as a hint; we don't try to be clever about
-  // formatting. Asgard owns the prompt template, this only joins them.
-  return `${sys}\n\n[style: ${tags.join(', ')}]`;
+
+  // Empty Soul must still ship the guardrail. Without this branch, returning
+  // undefined here causes nano-pencil SDK to fall back to its own hardcoded
+  // default system prompt (the "writing assistant in nanopencil" string) and
+  // the entire safety constraint is silently bypassed for any agent created
+  // without a Soul — direct CLI / config-file registrations, or future
+  // Asgard flows that allow Soul-less agents.
+  if (!sys) return SAFETY_GUARDRAIL;
+
+  let prompt = sys;
+  if (tags && tags.length > 0) {
+    // Style tags ride along as a hint; we don't try to be clever about
+    // formatting. Asgard owns the prompt template, this only joins them.
+    prompt = `${sys}\n\n[style: ${tags.join(', ')}]`;
+  }
+
+  return `${prompt}\n\n${SAFETY_GUARDRAIL}`;
 }
 
 function extractAssistantText(messages: unknown): string | null {
