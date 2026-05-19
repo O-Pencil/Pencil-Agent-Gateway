@@ -10,12 +10,13 @@
 import { Hono } from 'hono';
 import { GatewayError } from '../util/errors.js';
 import { logger } from '../util/logger.js';
-import { DingTalkAdapter, normalizeDingTalkPayload, verifyDingTalkRelayAuth } from './dingtalk/adapter.js';
+import { DingTalkAdapter, getDingTalkAccount, normalizeDingTalkPayload, verifyDingTalkRelayAuth } from './dingtalk/adapter.js';
 import { shouldProcessDingTalkInbound } from './dingtalk/dedup.js';
+import { sendToConversation } from './dingtalk/openapi.js';
 import { resolveStreamingContext, streamDingTalkReply } from './dingtalk/streaming.js';
 import { FeishuAdapter, normalizeFeishuPayload, verifyFeishuPayload } from './feishu/adapter.js';
 import { runChannelMessage } from './gateway-client.js';
-import { resolveChannelMessage } from './router.js';
+import { getChannelsConfig, resolveChannelMessage } from './router.js';
 import {
   normalizeWeChatText,
   parseWeChatTextXml,
@@ -189,6 +190,75 @@ export function createChannelApp(): Hono {
 
   app.get('/healthz', (c) => {
     return c.json({ status: 'ok', service: 'pencil-channel-wrapper', timestamp: new Date().toISOString() });
+  });
+
+  // ── Proactive outbound (REQ-001) ───────────────────────────────────────────
+  app.post('/channels/dingtalk/:accountId/send', async (c) => {
+    const accountId = c.req.param('accountId');
+
+    // Authenticate caller via webhookSecret (same mechanism as relay).
+    verifyDingTalkRelayAuth(accountId, {
+      authorization: c.req.header('Authorization'),
+      channelSecret:
+        c.req.header('X-Pencil-Channel-Secret') ||
+        c.req.header('X-Dingtalk-Channel-Secret'),
+    });
+
+    const body = await c.req.json<{
+      chatId?: string;
+      messageType?: string;
+      content?: string;
+      atSender?: string;
+    }>();
+
+    const chatId = body?.chatId?.trim();
+    if (!chatId) {
+      return c.json({ ok: false, error: 'missing chatId' }, 400);
+    }
+
+    const messageType = body?.messageType ?? 'markdown';
+    if (!['markdown', 'text'].includes(messageType)) {
+      return c.json({ ok: false, error: 'messageType must be "markdown" or "text"' }, 400);
+    }
+
+    const content = body?.content?.trim();
+    if (!content) {
+      return c.json({ ok: false, error: 'missing content' }, 400);
+    }
+
+    // Respect allowlist — reject sends to unlisted chats when allowAll is false.
+    const channelsConfig = getChannelsConfig();
+    if (!channelsConfig.allowlist?.allowAll) {
+      const allowed = channelsConfig.allowlist?.chatIds ?? [];
+      if (allowed.length > 0 && !allowed.includes(chatId)) {
+        return c.json({ ok: false, error: 'chatId is not in the allowlist' }, 403);
+      }
+    }
+
+    const account = getDingTalkAccount(accountId);
+    const clientId = account.clientId;
+    const clientSecret = account.clientSecret;
+    if (!clientId || !clientSecret) {
+      return c.json({ ok: false, error: 'DingTalk account credentials not configured for this accountId' }, 500);
+    }
+
+    const robotCode = account.robotCode ?? clientId;
+
+    try {
+      const { messageId } = await sendToConversation({
+        creds: { clientId, clientSecret },
+        robotCode,
+        conversationId: chatId,
+        messageType: messageType as 'markdown' | 'text',
+        content,
+        atSender: body?.atSender?.trim(),
+      });
+      return c.json({ ok: true, messageId });
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : String(err);
+      logger.error('DingTalk proactive send failed', { accountId, chatId, error: detail });
+      return c.json({ ok: false, error: `DingTalk API error: ${detail}` }, 502);
+    }
   });
 
   app.post('/channels/dingtalk/:accountId/webhook', async (c) => {

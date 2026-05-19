@@ -1,5 +1,5 @@
 /**
- * DingTalk OpenAPI client (AI card subset)
+ * DingTalk OpenAPI client (AI card + proactive outbound)
  *
  * [WHO]  Channel wrapper runtime
  * [FROM] DingTalk webhook handler when streaming-card delivery is enabled
@@ -8,6 +8,7 @@
  *          - access_token acquisition + in-memory caching with proactive refresh
  *          - card instance creation/delivery (POST /v1.0/card/instances/createAndDeliver)
  *          - streaming content updates (PUT /v1.0/card/streaming)
+ *          - proactive message send (POST /v1.0/message/sendToConversation)
  *
  * Why hand-rolled instead of pulling @alicloud/dingtalk:
  *  - The Aliyun TypeScript SDK ships a Tea runtime that bundles >2MB of
@@ -319,4 +320,87 @@ export async function streamCard(opts: StreamCardOptions): Promise<void> {
   }
 
   throw lastErr ?? new EngineError('DingTalk streamCard failed for unknown reason');
+}
+
+// ─── Proactive outbound ───────────────────────────────────────────────────────
+
+export interface SendToConversationOptions {
+  creds: DingTalkOpenApiCreds;
+  /** Robot code — for stream-mode robots equals clientId. */
+  robotCode: string;
+  /** Target DingTalk conversation ID (group chatId or 1:1 user chatId). */
+  conversationId: string;
+  /** `markdown` or `text`. */
+  messageType: 'markdown' | 'text';
+  /** Message body content. */
+  content: string;
+  /** Optional staffId to @mention in the conversation. */
+  atSender?: string;
+}
+
+interface SendToConversationResponseBody {
+  result?: { messageId?: string };
+  code?: string;
+  message?: string;
+  requestId?: string;
+}
+
+/**
+ * Proactively push a message to an arbitrary DingTalk conversation using the
+ * `/v1.0/message/sendToConversation` OpenAPI.
+ *
+ * Use this for scheduled reports, admin pushes, and alert notifications —
+ * any outbound message that is not a direct reply to an inbound event.
+ */
+export async function sendToConversation(opts: SendToConversationOptions): Promise<{ messageId: string }> {
+  const token = await getDingTalkAccessToken(opts.creds.clientId, opts.creds.clientSecret);
+
+  const body: Record<string, unknown> = {
+    robotCode: opts.robotCode,
+    conversationId: opts.conversationId,
+    msgType: opts.messageType,
+    msgArg: JSON.stringify({ msgContent: opts.content }),
+  };
+
+  if (opts.atSender) {
+    body.at = { atSender: opts.atSender };
+  }
+
+  const res = await fetch(`${OPENAPI_BASE}/v1.0/message/sendToConversation`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-acs-dingtalk-access-token': token,
+    },
+    body: JSON.stringify(body),
+  });
+
+  const text = await res.text().catch(() => '');
+  if (!res.ok) {
+    let parsed: SendToConversationResponseBody = {};
+    try {
+      parsed = JSON.parse(text) as SendToConversationResponseBody;
+    } catch {
+      // ignore
+    }
+    throw new EngineError(
+      `DingTalk sendToConversation failed: HTTP ${res.status} code=${parsed.code ?? '?'} requestId=${parsed.requestId ?? '?'} ${parsed.message || text.slice(0, 300)}`,
+    );
+  }
+
+  let parsed: SendToConversationResponseBody = {};
+  try {
+    parsed = JSON.parse(text) as SendToConversationResponseBody;
+  } catch {
+    // ignore
+  }
+
+  const messageId = parsed.result?.messageId ?? '';
+  logger.debug('DingTalk proactive message sent', {
+    conversationId: opts.conversationId,
+    messageType: opts.messageType,
+    messageId,
+  });
+
+  return { messageId };
 }
