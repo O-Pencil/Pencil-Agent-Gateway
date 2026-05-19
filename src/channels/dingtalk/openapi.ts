@@ -328,7 +328,7 @@ export interface SendToConversationOptions {
   creds: DingTalkOpenApiCreds;
   /** Robot code — for stream-mode robots equals clientId. */
   robotCode: string;
-  /** Target DingTalk conversation ID (group chatId or 1:1 user chatId). */
+  /** Target DingTalk conversation ID. Use "cid..." prefix for groups, plain staffId for users. */
   conversationId: string;
   /** `markdown` or `text`. */
   messageType: 'markdown' | 'text';
@@ -338,35 +338,53 @@ export interface SendToConversationOptions {
   atSender?: string;
 }
 
-interface SendToConversationResponseBody {
-  result?: { messageId?: string };
+interface ProactiveSendResponseBody {
+  result?: { messageId?: string; processQueryKey?: string };
   code?: string;
   message?: string;
   requestId?: string;
 }
 
 /**
- * Proactively push a message to an arbitrary DingTalk conversation using the
- * `/v1.0/message/sendToConversation` OpenAPI.
+ * Proactively push a message to an arbitrary DingTalk conversation.
  *
- * Use this for scheduled reports, admin pushes, and alert notifications —
- * any outbound message that is not a direct reply to an inbound event.
+ * For groups (conversationId starts with "cid") use:
+ *   POST /v1.0/robot/groupMessages/send  with openConversationId
+ *
+ * For users (1:1 DM) use:
+ *   POST /v1.0/robot/oToMessages/batchSend  with userIds
+ *
+ * This matches the DingTalk Robot API v1.0 template-message approach used by
+ * OpenClaw and the official DingTalk SDK — different from the card APIs.
  */
 export async function sendToConversation(opts: SendToConversationOptions): Promise<{ messageId: string }> {
   const token = await getDingTalkAccessToken(opts.creds.clientId, opts.creds.clientSecret);
+  const isGroup = opts.conversationId.startsWith('cid');
+
+  const url = isGroup
+    ? `${OPENAPI_BASE}/v1.0/robot/groupMessages/send`
+    : `${OPENAPI_BASE}/v1.0/robot/oToMessages/batchSend`;
+
+  // Use sampleMarkdown / sampleText template approach (same as OpenClaw).
+  const useMarkdown = opts.messageType === 'markdown';
+  const msgKey = useMarkdown ? 'sampleMarkdown' : 'sampleText';
+  const msgParam = useMarkdown
+    ? JSON.stringify({ title: 'Pencil Agent', text: opts.content })
+    : JSON.stringify({ content: opts.content });
 
   const body: Record<string, unknown> = {
     robotCode: opts.robotCode,
-    conversationId: opts.conversationId,
-    msgType: opts.messageType,
-    msgArg: JSON.stringify({ msgContent: opts.content }),
+    msgKey,
+    msgParam,
   };
 
-  if (opts.atSender) {
-    body.at = { atSender: opts.atSender };
+  if (isGroup) {
+    body.openConversationId = opts.conversationId;
+  } else {
+    body.userIds = [opts.conversationId];
   }
 
-  const res = await fetch(`${OPENAPI_BASE}/v1.0/message/sendToConversation`, {
+  const res = await fetch(url, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -377,26 +395,27 @@ export async function sendToConversation(opts: SendToConversationOptions): Promi
 
   const text = await res.text().catch(() => '');
   if (!res.ok) {
-    let parsed: SendToConversationResponseBody = {};
+    let parsed: ProactiveSendResponseBody = {};
     try {
-      parsed = JSON.parse(text) as SendToConversationResponseBody;
+      parsed = JSON.parse(text) as ProactiveSendResponseBody;
     } catch {
       // ignore
     }
     throw new EngineError(
-      `DingTalk sendToConversation failed: HTTP ${res.status} code=${parsed.code ?? '?'} requestId=${parsed.requestId ?? '?'} ${parsed.message || text.slice(0, 300)}`,
+      `DingTalk proactive send failed: HTTP ${res.status} code=${parsed.code ?? '?'} requestId=${parsed.requestId ?? '?'} ${parsed.message || text.slice(0, 300)}`,
     );
   }
 
-  let parsed: SendToConversationResponseBody = {};
+  let parsed: ProactiveSendResponseBody = {};
   try {
-    parsed = JSON.parse(text) as SendToConversationResponseBody;
+    parsed = JSON.parse(text) as ProactiveSendResponseBody;
   } catch {
     // ignore
   }
 
-  const messageId = parsed.result?.messageId ?? '';
+  const messageId = parsed.result?.messageId ?? parsed.result?.processQueryKey ?? '';
   logger.debug('DingTalk proactive message sent', {
+    url,
     conversationId: opts.conversationId,
     messageType: opts.messageType,
     messageId,
