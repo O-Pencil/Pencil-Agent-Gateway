@@ -77,6 +77,9 @@ updated: 2026-05-03
 17. [17-nanopencil-multi-agent-impact-eval.md](./17-nanopencil-multi-agent-impact-eval.md)
    - **已归档**（2026-05-06）：Step B 评估产物。源码分析、PR 拆分、测试矩阵已合并到核心文档 nanoPencil/docs/multi-agent-fs-design.md §9–§11。
 
+18. [18-tool-callback-protocol-v0.2.md](./18-tool-callback-protocol-v0.2.md)
+   - **草案 (2026-05-20)**：Gateway v0.2 工具回传协议——双通道（SSE `pencil.tool_request` + HTTP `tool_response`）；调用方能力广告 `pencil_client_tools`；EngineEvent / EngineAdapter 扩展契约；3 个实现里程碑 M-tools-1/2/3；5 个待决问题。配套编辑器 roadmap 阶段四 A 线。
+
 ## Status
 
 These documents are the source of truth for the v0.1 build until code exists.

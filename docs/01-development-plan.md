@@ -59,14 +59,14 @@ v0.1 的成功标准：
 
 ### 2.2 v0.2 计划
 
-| 模块 | 功能 |
-|------|------|
-| Tool callback | 自定义 SSE `tool_request` + HTTP/WS `tool_response` |
-| Persistent memory | file/SQLite memory profiles |
-| Thinking event | optional trace/thinking stream |
-| Usage event | token usage normalization |
-| Observability | structured logs + request id + trace hooks |
-| Asgard contract | internal headers + usage callback |
+| 模块 | 功能 | 设计文档 |
+|------|------|----------|
+| Tool callback | SSE `pencil.tool_request` + HTTP `POST .../tool_response`；调用方能力广告 `pencil_client_tools`；EngineEvent / EngineAdapter 扩展；M-tools-1/2/3 三里程碑 | [18-tool-callback-protocol-v0.2.md](./18-tool-callback-protocol-v0.2.md)（草案） |
+| Persistent memory | file/SQLite memory profiles | 待写 |
+| Thinking event | optional trace/thinking stream | 待写 |
+| Usage event | token usage normalization | 待写 |
+| Observability | structured logs + request id + trace hooks | 待写 |
+| Asgard contract | internal headers + usage callback + 代理 tool_response | doc 04 §3.5 + doc 18 §16 待决 |
 
 ### 2.3 v0.3 计划
 
