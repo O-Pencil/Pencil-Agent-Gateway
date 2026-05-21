@@ -165,6 +165,23 @@ Field rules:
 
 If the EngineAdapter emits `tool_request` for a tool name the caller did not advertise, Gateway converts it to an `error` event with code `tool_not_advertised` and aborts the turn. This is a protocol violation, not a runtime fallback.
 
+`arguments` is capped at 256 KiB serialized JSON (§16 decision 4). Oversized arguments turn into `tool_payload_too_large` error and abort the turn.
+
+### 6.1 SSE Event: `pencil.session_lost`
+
+Emitted when a session is evicted (LRU eviction, server restart, manual delete) while a tool call is pending. Gateway sends this event just before closing the SSE stream:
+
+```text
+event: pencil.session_lost
+data: {
+  "session_id": "draft-001",
+  "reason": "evicted" | "shutdown" | "deleted",
+  "pending_tool_call_id": "tc_01HXYZ..."
+}
+```
+
+After this event Gateway emits `data: [DONE]` and closes the stream. Subsequent `tool_response` POSTs for any `tool_call_id` in that session return `410 Gone`.
+
 ## 7. HTTP Endpoint: `POST .../tool_response`
 
 ```http
@@ -320,7 +337,7 @@ When Gateway emits `event: error` during a tool flow, `data.code` uses these sta
 |---|---|
 | `tool_not_advertised` | EngineAdapter requested a tool not in `pencil_client_tools` |
 | `tool_timeout` | tool didn't respond within `timeout_ms` |
-| `tool_payload_too_large` | inbound `output` exceeded 256 KiB |
+| `tool_payload_too_large` | inbound `output` OR outbound `arguments` exceeded 256 KiB (symmetric cap per §16 decision 4) |
 | `tool_invalid_response` | `tool_response` POST body failed validation |
 | `engine_misconfigured` | adapter emitted `tool_request` but lacks `provideToolResponse` |
 | `session_lost` | session died (server restart, eviction) before response arrived |
@@ -380,17 +397,27 @@ Deferred to v0.2.x once first cut lands:
 - Structured tool tracing (OpenTelemetry spans).
 - WS-based callback channel (only if measured latency wins justify it).
 
-## 16. Open Questions
+## 16. Resolved Decisions (2026-05-20)
 
-Pre-implementation decisions still owned:
+All five pre-implementation questions are decided. M-tools-1 may proceed.
 
-1. **Parallel tool calls.** Should v0.2 first cut allow the engine to emit two `tool_request` events before the first is resolved? Current draft says no (serialized). Decision affects `provideToolResponse` ordering and caller event handling.
-2. **Caller heartbeat.** Do we want the caller to send a `tool_progress` heartbeat for long-running tools, preventing premature timeout? Default: no — caller sets a generous `timeout_ms` and Gateway honors it.
-3. **Asgard's role.** Does Asgard proxy `tool_response` POSTs the same way it proxies chat completions, or do callers go straight to Gateway? Default: Asgard proxies — keeps the audit trail and key boundary consistent (see also `docs/04-asgard-editor-integration.md` §3.5).
-4. **Tool argument size cap.** Do we cap `arguments` JSON like we cap `output` at 256 KiB? Default: yes, same cap.
-5. **Session-pool eviction.** When sessions get evicted (LRU or restart), pending tools die. Should we provide a `pencil.session_lost` SSE before close? Default: yes — explicit beats silent.
+| # | Question | Decision | Rationale |
+|---|---|---|---|
+| 1 | Parallel tool calls in v0.2 first cut | **No — serialized only.** Engine MUST NOT emit a second `tool_request` until the previous one is resolved (or cancelled / timed-out / invalidated). | Editor-side tool runtime (file locks, bash processes) is easier to reason about serially; concurrency is a known footgun and is deferred to v0.2.x once the wire format proves stable. |
+| 2 | Caller heartbeat (`tool_progress`) | **No.** Caller picks a generous `timeout_ms` per tool (cap 120 s); long-running tools advertise a larger budget upfront. | Adds a third state-bearing message type with no clear win; timeout per call already covers the long-tail case. |
+| 3 | Asgard's role for `tool_response` POSTs | **Asgard proxies.** Editor → Asgard → Gateway for both chat completions and `tool_response`. Asgard MUST forward the caller's session-bound API Key unchanged. | Single audit trail; single key boundary; no editor-side "two-base-URL" configuration confusion. |
+| 4 | `arguments` JSON size cap | **Yes, 256 KiB, same as `output`.** Gateway rejects oversized `tool_request` arguments at emission with error code `tool_payload_too_large` (mirrors §13). | Symmetric caps stop a misbehaving engine from blowing the SSE frame just as we stop misbehaving callers from blowing the inbound POST. |
+| 5 | Explicit `pencil.session_lost` SSE on eviction | **Yes.** When a session is evicted (LRU, restart-related, manual delete) while a tool is pending, Gateway emits `event: pencil.session_lost` carrying `{session_id, reason}` before closing the SSE. Subsequent `tool_response` POSTs return `410`. | Editor UI needs to disambiguate "network dropped" from "server killed your session"; silent close conflates them. |
 
-Decisions should land before M-tools-2 starts.
+### Implementation impact of resolved decisions
+
+These decisions add concrete constraints/work items to the milestones in §15:
+
+- **Decision 1** → `tool-correlation` table holds at most one pending entry per `(agentId, sessionId)`. EngineAdapter contract documents: emitting `tool_request` while one is pending is a protocol violation and Gateway emits `engine_misconfigured` error.
+- **Decision 4** → `arguments` size check happens at Gateway emission boundary, not adapter boundary. New error code `tool_payload_too_large` applies to **both** directions (was output-only in §13).
+- **Decision 5** → New SSE event `pencil.session_lost` added to the event vocabulary; needs to be mentioned in §13 error-mapping reference and tested in M-tools-3.
+
+§13 will be touched accordingly in the M-tools-1 implementation PR (along with §6 to add `pencil.session_lost` to the event list).
 
 ---
 

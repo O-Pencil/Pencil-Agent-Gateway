@@ -16,6 +16,7 @@ import { isConfigReady } from './config.js';
 import { authMiddleware } from './auth/middleware.js';
 import { getRegistry } from './agent/registry.js';
 import { handleChatCompletion } from './routes/chat.js';
+import { handleToolResponse } from './routes/tool-response.js';
 
 export type ApiKeyConfig = {
   key: string;
@@ -96,6 +97,9 @@ export function createApp(): Hono<AppEnv> {
 
   // Chat completions endpoint (OpenAI-compatible)
   v1.post('/chat/completions', handleChatCompletion);
+
+  // v0.2 tool callback inbound endpoint. See docs/18 §7.
+  v1.post('/agents/:agentId/sessions/:sessionId/tool_response', handleToolResponse);
 
   // Agents endpoint - list all agents
   v1.get('/agents', (c) => {
@@ -196,7 +200,7 @@ export function createApp(): Hono<AppEnv> {
             message: err.message,
           },
         },
-        err.statusCode as 400 | 401 | 403 | 404 | 408 | 409 | 422 | 500
+        err.statusCode as 400 | 401 | 403 | 404 | 408 | 409 | 410 | 413 | 422 | 500
       );
     }
 
