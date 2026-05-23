@@ -1,108 +1,60 @@
 ---
-title: Glossary and Naming Reference
+title: Gateway-Internal Glossary (with ecosystem terms pointer)
 status: active
-scope: glossary
+scope: gateway-internal-glossary
 owner: pencil-agent-gateway maintainers
 created: 2026-04-25
-updated: 2026-04-25
+updated: 2026-05-22
 ---
 
-# Glossary and Naming Reference
+# Gateway-Internal Glossary
+
+> **生态级术语唯一源头**：[nanoPencil/docs/pencil-platform-charter.md §4](https://github.com/O-Pencil/nanoPencil/blob/main/docs/pencil-platform-charter.md#4-术语表)
+> nanoPencil / nano-pencil / PencilAgent / Pencil / Pencil Agent Gateway / Asgard Platform / nanopencil-editor / pencil-channel-gateway 等跨项目术语全部以 charter §4 为准。本文档只保留 Gateway 自己仓库内部的具体术语，避免与 charter 重复。
 
 ## DIP Metadata
 
 ```text
-[WHO]  Pencil Agent Gateway maintainers, AI coding agents, and ecosystem contributors
-[FROM] Cross-project naming drift (nanoPencil / nano-pencil / PencilAgent / Pencil) observed during Gateway design
-[TO]   A single normative term table used across Gateway docs and AI agent prompts
-[HERE] Repository-level glossary and naming rules that all other Gateway docs must follow
+[WHO]  Pencil Agent Gateway maintainers and AI coding agents working inside this repo
+[FROM] Cross-project terms are defined in nanoPencil charter §4; this file only defines Gateway-internal vocabulary
+[TO]   A precise reference for Gateway-specific abstractions: EngineAdapter / AgentRegistry / ToolCorrelation / etc.
+[HERE] Gateway-only glossary; ecosystem terms live in charter
 ```
 
-## 1. Why This Document Exists
+## 1. Why this is now a thin glossary
 
-Several closely related names appear across the ecosystem. Without a glossary, AI coding agents working in this repo will treat them as interchangeable, and boundary drift will follow. This file pins the meaning of each term.
+The previous version of this file tried to be the ecosystem-wide naming reference. With the platform charter in place, that responsibility has moved upstream to a single source. This file now lives as a Gateway-only addendum.
 
-The most critical distinction this document fixes:
+If you arrived here looking for the meaning of `nanoPencil` vs `nano-pencil` vs `PencilAgent` — go to charter §4. If you want to know what `EngineAdapter` or `ToolCorrelation` means inside this codebase, stay here.
 
-- **nanoPencil** is an engine project, not an Agent.
-- **PencilAgent** is a configured Agent instance built on top of that engine, with its own Soul, memory, model, and personality.
-- A PencilAgent has **identity**; an engine does not.
+## 2. Gateway-Internal Terms
 
-## 2. Term Table
+| Term | Refers to | File / Module |
+|------|-----------|---------------|
+| **EngineAdapter** | TypeScript interface that wraps any Agent engine and exposes a uniform `run(req, opts)` + optional `provideToolResponse()` surface. Gateway routes never depend on `nano-pencil` directly — only on EngineAdapter. | `src/engine/adapter.ts` |
+| **NanoPencilEngineAdapter** | The default EngineAdapter implementation; wraps `@pencil-agent/nano-pencil` SDK | `src/engine/nano-adapter.ts` |
+| **MockEngineAdapter** | Test-only EngineAdapter with scripted tool-request support | `src/engine/mock-adapter.ts` |
+| **AgentRegistry** | In-process map: `agentId -> AgentInstance`. Owns PencilAgent CRUD, file-backed persistence under `PENCILS_HOME/agents/<id>/`. | `src/agent/registry.ts` |
+| **AgentInstance** | Runtime form of a PencilAgent inside Gateway: id, modelId (`pencil/<id>`), engine reference, config, createdAt/updatedAt | `src/agent/registry.ts` |
+| **ToolCorrelation** | v0.2 in-memory table that bridges SSE `pencil.tool_request` outbound and HTTP `tool_response` inbound. One pending entry per `(agentId, sessionId)` (charter §8.1 decision 1). | `src/engine/tool-correlation.ts` |
+| **ToolCallEntry** | One row in the correlation table: id + session + agent + apiKey + resolve/reject + timeout handle | `src/engine/tool-correlation.ts` |
+| **SessionStore** | File-backed short-term memory for `(agentId, sessionId)` conversation history. Replaced when new agentDir is registered. | `src/store/session.ts` |
+| **SAFETY_GUARDRAIL** | System-prompt injection prepended at Soul resolution. Narrowly scoped to deployment-class user questions about this service; not a general safety filter. | `src/engine/nano-adapter.ts` |
+| **PENCILS_HOME** | env var; root for per-Pencil agentDir layout. See nanoPencil multi-agent-fs §9.2 for full spec. | `src/config.ts` |
+| **AgentDir** | `~/.pencils/agents/<id>/`; the directory holding one PencilAgent's memory / soul / auth / models / settings | `src/config.ts` |
+| **Channel adapter** | Gateway-internal alias for the WeChat / DingTalk / Feishu transports under `src/channels/` and `src/relays/`. They are HTTP callers of Gateway, not engine consumers. Long-term home is `pencil-channel-gateway` (see charter §3). | `src/channels/`, `src/relays/` |
+| **AsgardHeaders** | Request headers that Gateway accepts for logging / future audit but does not trust for authz: `X-Asgard-User`, `X-Asgard-Agent`, `X-Request-Id` | `src/auth/middleware.ts` |
+| **Caller** | Any HTTP client that calls Gateway: editor, nanoPencil CLI (remote mode), Asgard proxy, third-party. Caller's role and configuration live in [05-caller-runtime.md](./05-caller-runtime.md). | conceptual |
 
-| Term | Refers to | Notes |
-|------|-----------|-------|
-| **nanoPencil** | The engine project at `/workspace/nanoPencil` | Repository home of `@pencil-agent/nano-pencil` engine SDK and the `nanopencil` CLI binary. **Not itself a PencilAgent.** Provides the engine that PencilAgents are built on. |
-| **nano-pencil** | The npm package `@pencil-agent/nano-pencil` published from the nanoPencil repo | Engine SDK only. Wrapped by `NanoPencilEngineAdapter`. |
-| **PencilAgent** | A configured Agent instance: **nano-pencil engine + Soul + memory + model + personality** | The unit that has identity. Identified by `pencil/<agent-id>`. Lives inside Pencil Agent Gateway. **`PencilAgent` and "Pencil Agent instance" are synonymous;** prefer `PencilAgent` as the canonical short form. |
-| **Pencil** | Umbrella term for the Agent capability that callers consume through Gateway | "Calls Pencil" means "calls a PencilAgent that Gateway is hosting." Not a separate project. |
-| **Pencil Agent Gateway** | This repository / service | HTTP serving layer that hosts PencilAgent instances and exposes them over OpenAI-compatible HTTP. |
-| **nanoPencil CLI** | The `nanopencil` binary shipped from nanoPencil project | A terminal Agent runtime. When configured to run remotely, it acts as a caller of one PencilAgent through Gateway. |
-| **Asgard Platform** | External platform repo (`/workspace/Asgard-platform`) | Hosts users; each user creates multiple PencilAgents. Asgard proxies caller traffic to Gateway. |
-| **nanopencil-editor** | External writing client repo | Desktop/Web editor; one of the callers; configures its own writing-focused PencilAgent. |
-| **pencil-channel-gateway** | Future separate project | Telegram/Slack/Discord/WeChat adapters. Out of scope here. |
+## 3. Naming Rules (Gateway-internal only)
 
-## 3. The PencilAgent Definition (Core)
+1. In Gateway code use the camelCase TS identifiers (`engineAdapter`, `toolCorrelation`, `agentRegistry`).
+2. In Gateway docs prose use the brand-style proper noun form for cross-project terms (per charter §4) and the codebase form for internal terms (`EngineAdapter` capitalized as a type, `tool correlation table` as descriptive prose).
+3. Never reintroduce ecosystem-wide naming rules here — that section moved to charter §4.
 
-A **PencilAgent** is a configured running unit:
+## 4. Cross-Reference
 
-```text
-PencilAgent = nano-pencil engine
-            + Soul (system prompt, style tags, behavioral defaults)
-            + memory (short-term in v0.1; persistent later)
-            + model (provider, name, credentials)
-            + personality (tags, voice, optional fine-tunings)
-```
-
-A PencilAgent has identity. Two PencilAgents using the same engine but different Souls are different Agents (different writers, different code reviewers, different game NPCs).
-
-## 4. Caller / Hosted Topology
-
-```text
-nanoPencil CLI (remote mode)        ┐
-nanopencil-editor                    │   HTTP / SSE       Pencil Agent Gateway
-Asgard Platform (proxying users)     ├──────────────────► hosts many PencilAgents
-3rd-party OpenAI client              │                    (each = engine + Soul + memory + model)
-                                     ┘                    │
-                                                          ▼
-                                                   nano-pencil engine
-                                                   (one shared engine SDK)
-```
-
-**Each application/client configures its own PencilAgent instance(s).** Examples:
-
-| Caller | Typical PencilAgent configuration |
-|--------|-----------------------------------|
-| nanoPencil CLI default | a coding-assistant PencilAgent (default Soul, local memory) |
-| nanopencil-editor | a writing-assistant PencilAgent (writing Soul, project-scoped memory) |
-| Asgard user | multiple PencilAgents per user (one per use case) |
-| 3rd-party app | whatever PencilAgents the operator preconfigured |
-
-The same Gateway instance may host many distinct PencilAgents at once; routing is by `model: pencil/<agent-id>`.
-
-## 5. Naming Rules
-
-1. In code, repo paths, package names: prefer the npm-style lowercase hyphenated form (`pencil-agent-gateway`, `nano-pencil`).
-2. In prose and product copy: prefer the brand-style form (`Pencil Agent Gateway`, `nanoPencil`, `PencilAgent`).
-3. Never write `pencil-gateway` or `Pencil Gateway` as a repository or package name; those forms are ambiguous with future Channel Gateway.
-4. When a doc speaks of "the engine," it means `nano-pencil` (the npm SDK) accessed through `NanoPencilEngineAdapter`.
-5. When a doc speaks of "an Agent" or "a PencilAgent," it means a configured instance, never the nanoPencil project as a whole.
-
-## 6. Common Anti-Patterns
-
-| Bad | Why | Better |
-|-----|-----|--------|
-| "PencilAgent calls Gateway" | Reverses caller direction. PencilAgent is what is being called, not who is calling. | "Caller calls a PencilAgent **through** Gateway" |
-| "nanoPencil is a PencilAgent" | Conflates engine project with Agent instance | "nanoPencil is the engine project; a PencilAgent is a configured instance built on it" |
-| "Pencil Agent instance ≠ PencilAgent" | They are the same thing under this glossary | Use `PencilAgent` as the canonical short form |
-| "Install pencil-gateway" | Ambiguous with channel gateway | "Install pencil-agent-gateway" |
-| "nanoPencil SDK" | Mixes project name with package role | "nano-pencil SDK" or "nanoPencil's engine SDK" |
-| "Pencil engine" | Vague | "nano-pencil engine" |
-| "Gateway is primarily for PencilAgent" | Reads as if PencilAgent is a caller | "Gateway primarily hosts PencilAgents and serves callers (nanoPencil CLI, editor, Asgard, third-party)" |
-
-## 7. Cross-Reference
-
-- Repository identity: see [../README.md](../README.md)
-- DIP protocol and rules: see [../AGENTS.md](../AGENTS.md)
-- Caller-facing runtime contract: see [05-caller-runtime.md](./05-caller-runtime.md)
-- Engine boundary and Agent instance internals: see [03-adapter-architecture.md](./03-adapter-architecture.md)
+- Ecosystem term table (canonical): [nanoPencil/docs/pencil-platform-charter.md §4](https://github.com/O-Pencil/nanoPencil/blob/main/docs/pencil-platform-charter.md#4-术语表)
+- Caller-facing runtime contract: [05-caller-runtime.md](./05-caller-runtime.md)
+- EngineAdapter design: [03-adapter-architecture.md](./03-adapter-architecture.md)
+- Tool callback v0.2: [18-tool-callback-protocol-v0.2.md](./18-tool-callback-protocol-v0.2.md)

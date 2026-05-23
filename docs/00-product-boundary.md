@@ -4,10 +4,13 @@ status: active
 scope: gateway-boundary
 owner: pencil-agent-gateway maintainers
 created: 2026-04-25
-updated: 2026-04-25
+updated: 2026-05-22
 ---
 
 # Pencil Agent Gateway 产品边界
+
+> **生态发展路线唯一源头**：[nanoPencil/docs/pencil-platform-charter.md](https://github.com/O-Pencil/nanoPencil/blob/main/docs/pencil-platform-charter.md)
+> 本文档专注 Gateway 自身的产品边界。生态级拓扑、术语、阶段、跨项目工作线请直接读 charter。
 
 ## DIP Metadata
 
@@ -66,12 +69,10 @@ pencil-agent-gateway
 
 ## 4. 四层生态边界
 
-| 层 | 项目 | 做什么 | 不做什么 |
-|----|------|--------|----------|
-| Engine | `nano-pencil` | 对话、工具 loop、记忆原语、模型路由、SDK/ACP CLI | HTTP API、API Key、平台多租户 |
-| Agent Gateway | 本仓库 | OpenAI API、SSE、API Key、**PencilAgent 实例托管**、EngineAdapter | 用户系统、计费、Marketplace、渠道 bot |
-| Platform | `Asgard Platform` | 用户、计费、Console、Marketplace、容器编排 | 直接 import nano-pencil 或 Gateway 代码 |
-| Caller | `nanopencil-editor`、`nanoPencil CLI`（远程模式）、3rd-party | 各自配置自己的 PencilAgent；通过 Gateway HTTP 调用 | 服务端 Agent 编排、平台账号系统 |
+> **生态级拓扑与 4 项目职责表已收口到 charter**，本文档不再重复。
+> 唯一源头：[nanoPencil/docs/pencil-platform-charter.md §2-§3](https://github.com/O-Pencil/nanoPencil/blob/main/docs/pencil-platform-charter.md)。
+>
+> 本仓库（Pencil-Agent-Gateway）在生态中的定位：**Agent Gateway 层**——HTTP serving，OpenAI 兼容 API + SSE，托管 PencilAgent 实例，EngineAdapter 抽象。不做用户系统、计费、Marketplace、渠道 bot。详细职责表见 charter §3。
 
 ## 5. Gateway 做什么
 
